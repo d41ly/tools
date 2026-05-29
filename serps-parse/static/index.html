@@ -1,0 +1,341 @@
+<!doctype html>
+<html lang="en" class="dark">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>SERP Scraper</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = { darkMode: 'class', theme: { extend: {
+      colors: { brand: { 400: '#818cf8', 500: '#6366f1', 600: '#4f46e5' } }
+    }}};
+  </script>
+  <link rel="stylesheet" href="/static/styles.css" />
+  <script defer src="https://unpkg.com/alpinejs@3.14.7/dist/cdn.min.js"></script>
+  <script defer src="/static/app.js"></script>
+</head>
+<body class="bg-slate-950 text-slate-100 min-h-screen antialiased" x-data="serpApp()" x-init="boot()">
+
+  <div class="flex min-h-screen">
+    <!-- Sidebar -->
+    <aside class="w-60 shrink-0 border-r border-slate-800 bg-slate-900/50 flex flex-col">
+      <div class="px-5 pt-5 pb-4 border-b border-slate-800">
+        <div class="text-lg font-semibold tracking-tight">SERP Scraper</div>
+        <div class="text-xs text-slate-400 mt-0.5" x-text="bootError ? bootError : 'self-hosted'"></div>
+      </div>
+      <nav class="flex flex-col gap-0.5 p-3 text-sm">
+        <template x-for="item in nav" :key="item.id">
+          <a :href="'#/' + item.id"
+             @click.prevent="route = item.id; window.location.hash = '#/' + item.id"
+             :class="route === item.id
+              ? 'bg-brand-600/20 text-brand-400 border border-brand-600/30'
+              : 'text-slate-300 hover:bg-slate-800/60 border border-transparent'"
+             class="px-3 py-2 rounded-md flex items-center gap-3 transition">
+            <span class="text-base" x-text="item.icon"></span>
+            <span x-text="item.label"></span>
+          </a>
+        </template>
+      </nav>
+      <div class="mt-auto p-4 text-xs text-slate-500 border-t border-slate-800">
+        v1.0 &middot; behind webauth
+      </div>
+    </aside>
+
+    <!-- Main -->
+    <main class="flex-1 overflow-x-hidden">
+      <!-- New Task -->
+      <section x-show="route === 'new'" class="p-6 lg:p-8 max-w-6xl mx-auto" x-cloak>
+        <h1 class="text-2xl font-semibold mb-1">New Task</h1>
+        <p class="text-slate-400 text-sm mb-6">Queue a scraping task. Tasks run one at a time, oldest first.</p>
+
+        <form @submit.prevent="submitTask()" class="grid grid-cols-1 lg:grid-cols-2 gap-5 bg-slate-900/40 border border-slate-800 rounded-lg p-5">
+          <div class="lg:col-span-2">
+            <label class="block text-sm text-slate-300 mb-1.5">Name <span class="text-slate-500">(optional, auto-generated)</span></label>
+            <input x-model="form.name" placeholder="auto" class="w-full bg-slate-950 border border-slate-700 rounded-md px-3 py-2 text-sm focus:border-brand-500 focus:outline-none" />
+          </div>
+
+          <div class="lg:col-span-2">
+            <label class="block text-sm text-slate-300 mb-1.5">Keywords <span class="text-slate-500">(one per line)</span></label>
+            <textarea x-model="form.keywordsText" rows="5" required placeholder="best running shoes&#10;noise-cancelling headphones" class="w-full font-mono text-sm bg-slate-950 border border-slate-700 rounded-md px-3 py-2 focus:border-brand-500 focus:outline-none"></textarea>
+          </div>
+
+          <div>
+            <label class="block text-sm text-slate-300 mb-1.5">Engines</label>
+            <div class="flex gap-3 flex-wrap">
+              <template x-for="e in engines" :key="e">
+                <label class="inline-flex items-center gap-2 bg-slate-950 border border-slate-700 rounded-md px-3 py-2 text-sm cursor-pointer hover:border-slate-600">
+                  <input type="checkbox" :value="e" x-model="form.engines" class="accent-brand-500" />
+                  <span x-text="e"></span>
+                </label>
+              </template>
+            </div>
+          </div>
+
+          <div>
+            <label class="block text-sm text-slate-300 mb-1.5">Country (geo-target)</label>
+            <select x-model="form.country" class="w-full bg-slate-950 border border-slate-700 rounded-md px-3 py-2 text-sm focus:border-brand-500 focus:outline-none">
+              <template x-for="c in countries" :key="c.code">
+                <option :value="c.code" x-text="c.code + ' — ' + c.locale"></option>
+              </template>
+            </select>
+          </div>
+
+          <div>
+            <label class="block text-sm text-slate-300 mb-1.5">Per-page delay (ms)</label>
+            <input type="number" min="0" step="100" x-model.number="form.per_page_delay_ms" class="w-full bg-slate-950 border border-slate-700 rounded-md px-3 py-2 text-sm" />
+          </div>
+          <div>
+            <label class="block text-sm text-slate-300 mb-1.5">Per-keyword delay (ms)</label>
+            <input type="number" min="0" step="500" x-model.number="form.per_keyword_delay_ms" class="w-full bg-slate-950 border border-slate-700 rounded-md px-3 py-2 text-sm" />
+          </div>
+
+          <div class="lg:col-span-2">
+            <label class="block text-sm text-slate-300 mb-1.5">Notification email <span class="text-slate-500">(blank = use default from Settings)</span></label>
+            <input type="email" x-model="form.notify_email" placeholder="ops@example.com" class="w-full bg-slate-950 border border-slate-700 rounded-md px-3 py-2 text-sm" />
+          </div>
+
+          <div class="lg:col-span-2 border-t border-slate-800 pt-4 mt-1">
+            <label class="inline-flex items-center gap-2 text-sm text-slate-300 cursor-pointer">
+              <input type="checkbox" x-model="form.useProxy" class="accent-brand-500" />
+              Use proxy for this task
+            </label>
+            <div x-show="form.useProxy" class="grid grid-cols-1 lg:grid-cols-3 gap-3 mt-3" x-cloak>
+              <input x-model="form.proxy.server" placeholder="http://1.2.3.4:8080" class="bg-slate-950 border border-slate-700 rounded-md px-3 py-2 text-sm" />
+              <input x-model="form.proxy.username" placeholder="username (opt)" class="bg-slate-950 border border-slate-700 rounded-md px-3 py-2 text-sm" />
+              <input x-model="form.proxy.password" type="password" placeholder="password (opt)" class="bg-slate-950 border border-slate-700 rounded-md px-3 py-2 text-sm" />
+            </div>
+          </div>
+
+          <div class="lg:col-span-2 flex items-center gap-3 justify-end pt-1">
+            <span class="text-xs text-rose-400" x-show="formError" x-text="formError"></span>
+            <button :disabled="submitting" type="submit" class="bg-brand-600 hover:bg-brand-500 disabled:opacity-50 text-white text-sm font-medium px-4 py-2 rounded-md transition">
+              <span x-show="!submitting">Queue task</span>
+              <span x-show="submitting">Queuing…</span>
+            </button>
+          </div>
+        </form>
+
+        <!-- Active/queued -->
+        <h2 class="text-lg font-semibold mt-8 mb-3">Active &amp; queued</h2>
+        <div class="border border-slate-800 rounded-lg overflow-hidden">
+          <table class="w-full text-sm">
+            <thead class="bg-slate-900/60 text-slate-400 text-xs uppercase tracking-wider">
+              <tr><th class="px-3 py-2 text-left">Name</th><th class="px-3 py-2 text-left">Status</th><th class="px-3 py-2 text-left">Progress</th><th class="px-3 py-2 text-right">Actions</th></tr>
+            </thead>
+            <tbody>
+              <template x-for="t in activeTasks" :key="t.id">
+                <tr class="border-t border-slate-800 hover:bg-slate-900/40">
+                  <td class="px-3 py-2 align-top">
+                    <div class="font-medium text-slate-100" x-text="t.name"></div>
+                    <div class="text-xs text-slate-500" x-text="(t.engines||[]).join(', ') + ' · ' + t.country"></div>
+                  </td>
+                  <td class="px-3 py-2 align-top">
+                    <span :class="statusClass(t.status)" class="px-2 py-0.5 rounded text-xs" x-text="t.status"></span>
+                  </td>
+                  <td class="px-3 py-2 align-top">
+                    <div class="text-xs text-slate-300" x-text="progressText(t)"></div>
+                    <div class="h-1 bg-slate-800 rounded mt-1 w-40 overflow-hidden">
+                      <div class="h-full bg-brand-500" :style="'width:' + progressPct(t) + '%'"></div>
+                    </div>
+                  </td>
+                  <td class="px-3 py-2 align-top text-right space-x-1">
+                    <button x-show="t.status === 'running' || t.status === 'queued'" @click="controlTask(t, 'pause')" class="text-xs px-2 py-1 rounded bg-slate-800 hover:bg-slate-700">Pause</button>
+                    <button x-show="t.status === 'paused'" @click="controlTask(t, 'resume')" class="text-xs px-2 py-1 rounded bg-slate-800 hover:bg-slate-700">Resume</button>
+                    <button @click="controlTask(t, 'cancel')" class="text-xs px-2 py-1 rounded bg-rose-900/40 hover:bg-rose-800/60 text-rose-200">Cancel</button>
+                  </td>
+                </tr>
+              </template>
+              <tr x-show="activeTasks.length === 0"><td colspan="4" class="px-3 py-6 text-center text-slate-500 text-sm">No active or queued tasks.</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <!-- History -->
+      <section x-show="route === 'history'" class="p-6 lg:p-8 max-w-6xl mx-auto" x-cloak>
+        <h1 class="text-2xl font-semibold mb-1">History</h1>
+        <p class="text-slate-400 text-sm mb-6">All tasks, newest first. Click a row to view results.</p>
+
+        <div class="border border-slate-800 rounded-lg overflow-hidden">
+          <table class="w-full text-sm">
+            <thead class="bg-slate-900/60 text-slate-400 text-xs uppercase tracking-wider">
+              <tr>
+                <th class="px-3 py-2 text-left">Created</th>
+                <th class="px-3 py-2 text-left">Name</th>
+                <th class="px-3 py-2 text-left">Status</th>
+                <th class="px-3 py-2 text-left">Progress</th>
+                <th class="px-3 py-2 text-right">Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              <template x-for="t in allTasks" :key="t.id">
+                <tr class="border-t border-slate-800 hover:bg-slate-900/40 cursor-pointer" @click="openResults(t)">
+                  <td class="px-3 py-2 align-top text-xs text-slate-400" x-text="formatTime(t.created_at)"></td>
+                  <td class="px-3 py-2 align-top">
+                    <div class="font-medium" x-text="t.name"></div>
+                    <div class="text-xs text-slate-500" x-text="(t.engines||[]).join(', ') + ' · ' + t.country"></div>
+                  </td>
+                  <td class="px-3 py-2 align-top">
+                    <span :class="statusClass(t.status)" class="px-2 py-0.5 rounded text-xs" x-text="t.status"></span>
+                    <div x-show="t.error_message" class="text-xs text-rose-400 mt-1" x-text="t.error_message"></div>
+                  </td>
+                  <td class="px-3 py-2 align-top">
+                    <div class="text-xs text-slate-300" x-text="progressText(t)"></div>
+                  </td>
+                  <td class="px-3 py-2 align-top text-right space-x-1" @click.stop>
+                    <button x-show="t.status === 'running' || t.status === 'queued'" @click="controlTask(t, 'pause')" class="text-xs px-2 py-1 rounded bg-slate-800 hover:bg-slate-700">Pause</button>
+                    <button x-show="t.status === 'paused'" @click="controlTask(t, 'resume')" class="text-xs px-2 py-1 rounded bg-slate-800 hover:bg-slate-700">Resume</button>
+                    <button x-show="['queued','running','paused'].includes(t.status)" @click="controlTask(t, 'cancel')" class="text-xs px-2 py-1 rounded bg-rose-900/40 hover:bg-rose-800/60 text-rose-200">Cancel</button>
+                  </td>
+                </tr>
+              </template>
+              <tr x-show="allTasks.length === 0"><td colspan="5" class="px-3 py-6 text-center text-slate-500 text-sm">No tasks yet.</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <!-- Settings -->
+      <section x-show="route === 'settings'" class="p-6 lg:p-8 max-w-3xl mx-auto" x-cloak>
+        <h1 class="text-2xl font-semibold mb-1">Settings</h1>
+        <p class="text-slate-400 text-sm mb-6">Stored in the database. Passwords are encrypted at rest.</p>
+
+        <form @submit.prevent="saveSettings()" class="bg-slate-900/40 border border-slate-800 rounded-lg p-5 grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div class="md:col-span-2">
+            <label class="block text-sm text-slate-300 mb-1.5">Default notification email</label>
+            <input type="email" x-model="settings.default_notify_email" class="w-full bg-slate-950 border border-slate-700 rounded-md px-3 py-2 text-sm" />
+          </div>
+          <div>
+            <label class="block text-sm text-slate-300 mb-1.5">SMTP host</label>
+            <input x-model="settings.smtp_host" class="w-full bg-slate-950 border border-slate-700 rounded-md px-3 py-2 text-sm" />
+          </div>
+          <div>
+            <label class="block text-sm text-slate-300 mb-1.5">SMTP port</label>
+            <input type="number" x-model.number="settings.smtp_port" class="w-full bg-slate-950 border border-slate-700 rounded-md px-3 py-2 text-sm" />
+          </div>
+          <div>
+            <label class="block text-sm text-slate-300 mb-1.5">SMTP username</label>
+            <input x-model="settings.smtp_username" autocomplete="off" class="w-full bg-slate-950 border border-slate-700 rounded-md px-3 py-2 text-sm" />
+          </div>
+          <div>
+            <label class="block text-sm text-slate-300 mb-1.5">
+              SMTP password
+              <span x-show="settings.smtp_password_set" class="ml-1 text-xs text-emerald-400">(set)</span>
+            </label>
+            <input type="password" x-model="settings.smtp_password" autocomplete="new-password" placeholder="leave blank to keep" class="w-full bg-slate-950 border border-slate-700 rounded-md px-3 py-2 text-sm" />
+          </div>
+          <div>
+            <label class="block text-sm text-slate-300 mb-1.5">From address</label>
+            <input type="email" x-model="settings.smtp_from" class="w-full bg-slate-950 border border-slate-700 rounded-md px-3 py-2 text-sm" />
+          </div>
+          <div>
+            <label class="inline-flex items-center gap-2 text-sm text-slate-300 mt-7">
+              <input type="checkbox" x-model="settings.smtp_starttls" class="accent-brand-500" />
+              Use STARTTLS
+            </label>
+          </div>
+          <div class="md:col-span-2 flex items-center gap-3 justify-end pt-1">
+            <span class="text-xs text-emerald-400" x-show="settingsSaved">Saved</span>
+            <button type="submit" class="bg-brand-600 hover:bg-brand-500 text-white text-sm font-medium px-4 py-2 rounded-md">Save settings</button>
+          </div>
+        </form>
+
+        <h2 class="text-lg font-semibold mt-8 mb-3">API tokens</h2>
+        <p class="text-slate-400 text-sm mb-3">Use these as <code class="text-xs bg-slate-800 px-1 rounded">Authorization: Bearer &lt;token&gt;</code> on requests to <code class="text-xs bg-slate-800 px-1 rounded">/api/*</code>. The raw value is shown only once.</p>
+        <div class="bg-slate-900/40 border border-slate-800 rounded-lg p-5">
+          <form @submit.prevent="createToken()" class="flex gap-2 mb-4">
+            <input x-model="newTokenName" required placeholder="Token name (e.g. ci-job)" class="flex-1 bg-slate-950 border border-slate-700 rounded-md px-3 py-2 text-sm" />
+            <button class="bg-brand-600 hover:bg-brand-500 text-white text-sm font-medium px-4 py-2 rounded-md">Create</button>
+          </form>
+          <table class="w-full text-sm">
+            <thead class="text-slate-400 text-xs uppercase">
+              <tr><th class="text-left py-1.5">Name</th><th class="text-left py-1.5">Prefix</th><th class="text-left py-1.5">Created</th><th class="text-left py-1.5">Last used</th><th class="text-left py-1.5">Status</th><th></th></tr>
+            </thead>
+            <tbody>
+              <template x-for="t in tokens" :key="t.id">
+                <tr class="border-t border-slate-800">
+                  <td class="py-2" x-text="t.name"></td>
+                  <td class="py-2 font-mono text-slate-300" x-text="t.prefix + '…'"></td>
+                  <td class="py-2 text-slate-400" x-text="formatTime(t.created_at)"></td>
+                  <td class="py-2 text-slate-400" x-text="t.last_used_at ? formatTime(t.last_used_at) : '—'"></td>
+                  <td class="py-2"><span :class="t.revoked_at ? 'text-rose-400' : 'text-emerald-400'" x-text="t.revoked_at ? 'revoked' : 'active'"></span></td>
+                  <td class="py-2 text-right">
+                    <button x-show="!t.revoked_at" @click="revokeToken(t)" class="text-xs px-2 py-1 rounded bg-rose-900/40 hover:bg-rose-800/60 text-rose-200">Revoke</button>
+                  </td>
+                </tr>
+              </template>
+              <tr x-show="tokens.length === 0"><td colspan="6" class="py-4 text-center text-slate-500 text-sm">No tokens yet.</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <!-- Token created modal -->
+  <div x-show="newTokenShown" x-cloak class="fixed inset-0 z-50 bg-black/70 flex items-center justify-center p-4" @click.self="newTokenShown = ''">
+    <div class="bg-slate-900 border border-slate-700 rounded-lg max-w-lg w-full p-6">
+      <h3 class="text-lg font-semibold mb-2">Token created</h3>
+      <p class="text-sm text-slate-400 mb-3">Copy this now — it won't be shown again.</p>
+      <div class="font-mono text-xs bg-slate-950 border border-slate-700 rounded px-3 py-2 break-all" x-text="newTokenShown"></div>
+      <div class="flex justify-end gap-2 mt-4">
+        <button @click="copyToClipboard(newTokenShown)" class="text-sm px-3 py-1.5 rounded bg-slate-800 hover:bg-slate-700">Copy</button>
+        <button @click="newTokenShown = ''" class="text-sm px-3 py-1.5 rounded bg-brand-600 hover:bg-brand-500">Done</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Results drawer -->
+  <div x-show="resultsTask" x-cloak class="fixed inset-0 z-40 bg-black/60" @click.self="resultsTask = null">
+    <div class="absolute right-0 top-0 bottom-0 w-full md:max-w-4xl bg-slate-950 border-l border-slate-800 overflow-y-auto" x-show="resultsTask">
+      <template x-if="resultsTask">
+        <div class="p-6">
+          <div class="flex items-start justify-between mb-2">
+            <div>
+              <div class="text-sm text-slate-400" x-text="formatTime(resultsTask.created_at)"></div>
+              <h2 class="text-xl font-semibold" x-text="resultsTask.name"></h2>
+              <div class="text-xs text-slate-500 mt-1" x-text="(resultsTask.engines||[]).join(', ') + ' · ' + resultsTask.country"></div>
+            </div>
+            <button @click="resultsTask = null" class="text-slate-400 hover:text-white text-2xl leading-none">&times;</button>
+          </div>
+          <div class="mb-4">
+            <span :class="statusClass(resultsTask.status)" class="px-2 py-0.5 rounded text-xs" x-text="resultsTask.status"></span>
+            <span x-show="resultsTask.error_message" class="ml-2 text-xs text-rose-400" x-text="resultsTask.error_message"></span>
+          </div>
+
+          <div class="flex flex-wrap gap-2 mb-4 text-xs">
+            <template x-for="g in resultGroups" :key="g.engine + '|' + g.keyword">
+              <button @click="selectedGroup = g; loadResults()"
+                      :class="selectedGroup && selectedGroup.engine === g.engine && selectedGroup.keyword === g.keyword
+                        ? 'bg-brand-600/30 border-brand-500 text-brand-200'
+                        : 'bg-slate-900 border-slate-700 hover:border-slate-600'"
+                      class="border rounded px-2.5 py-1.5">
+                <span class="font-mono text-[10px] uppercase mr-1.5 text-slate-400" x-text="g.engine"></span>
+                <span x-text="g.keyword"></span>
+                <span class="ml-1.5 text-slate-500" x-text="'(' + g.count + ')'"></span>
+              </button>
+            </template>
+            <div x-show="resultGroups.length === 0" class="text-slate-500 text-sm">No results.</div>
+          </div>
+
+          <ol class="space-y-3">
+            <template x-for="(r, idx) in results" :key="r.id">
+              <li class="border border-slate-800 rounded-md p-3 bg-slate-900/30">
+                <div class="flex gap-3">
+                  <div class="text-xs font-mono text-slate-500 pt-1" x-text="r.position"></div>
+                  <div class="flex-1 min-w-0">
+                    <a :href="r.url" target="_blank" rel="noreferrer" class="text-brand-400 hover:underline font-medium break-words" x-text="r.title || r.url"></a>
+                    <div class="text-xs text-emerald-400/80 font-mono break-all" x-text="r.url"></div>
+                    <div class="text-sm text-slate-300 mt-1" x-text="r.description"></div>
+                  </div>
+                </div>
+              </li>
+            </template>
+          </ol>
+        </div>
+      </template>
+    </div>
+  </div>
+
+</body>
+</html>
