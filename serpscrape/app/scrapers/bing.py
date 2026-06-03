@@ -62,40 +62,23 @@ class BingScraper(Scraper):
         self, page: Page, keyword: str, ctx: ScrapeContext
     ) -> list[ScrapedResult]:
         g = geo_info(ctx.country)
-        mkt = g["locale"]  # e.g. "en-US" — Bing's authoritative market selector
+        mkt = g["locale"]  # e.g. "en-US"
         mkt_l = mkt.lower()
-        cc = ctx.country.lower()
-        # ensearch=1 forces Bing's English experience from a non-English-geolocated
-        # IP; only meaningful when the target language is English.
-        ensearch = "&ensearch=1" if g["lang"] == "en" else ""
 
-        # Lock Bing to the requested market. Without this, Bing geolocates by the
-        # server's egress IP and returns mixed-language/irrelevant decoy results.
+        # Hint the market via cookies (the headful context already sends en-US locale
+        # + Accept-Language). Keep this minimal — earlier attempts to *force* the market
+        # with a homepage setmkt redirect / ensearch=1 made Bing serve a region page
+        # with no results. NOTE: Bing ultimately geolocates by the egress IP, so from an
+        # IP in another country results may still be localized; use a proxy in the target
+        # country (per-task proxy field) for strict geo-targeting.
         try:
             await page.context.add_cookies(
                 [
-                    {"name": "_EDGE_S", "value": f"ui={mkt_l}&mkt={mkt_l}", "domain": ".bing.com", "path": "/"},
+                    {"name": "_EDGE_S", "value": f"mkt={mkt_l}&ui={mkt_l}", "domain": ".bing.com", "path": "/"},
                     {"name": "_EDGE_CD", "value": f"m={mkt_l}&u={mkt_l}", "domain": ".bing.com", "path": "/"},
-                    {
-                        "name": "SRCHHPGUSR",
-                        "value": f"SRCHLANG={g['lang']}&BRW=NOTP&BRH=S&CW=1920&CH=1080&DPR=1&UTC=0&MARKET={mkt_l}",
-                        "domain": ".bing.com",
-                        "path": "/",
-                    },
+                    {"name": "SRCHHPGUSR", "value": f"SRCHLANG={g['lang']}", "domain": ".bing.com", "path": "/"},
                 ]
             )
-        except Exception:
-            pass
-
-        # Plant the market by hitting the homepage with setmkt first (this is how a
-        # real user switching region establishes the cookie), then search.
-        try:
-            await page.goto(
-                f"https://www.bing.com/?mkt={mkt}&setmkt={mkt}&setlang={g['lang']}{ensearch}",
-                wait_until="domcontentloaded",
-                timeout=45000,
-            )
-            await human_dwell(page)
         except Exception:
             pass
 
@@ -104,11 +87,10 @@ class BingScraper(Scraper):
         prev_len = -1
         stall = 0
         while len(results) < self.target_results and first <= 150:
-            # NOTE: do NOT send &count= — it makes Bing collapse to a single page
-            # and ignore &first=, which caps results at ~10. Plain &first= paginates.
+            # No &count= (it collapses Bing to a single page and ignores &first=).
             url = (
                 f"https://www.bing.com/search?q={quote_plus(keyword)}"
-                f"&mkt={mkt}&setmkt={mkt}&setlang={g['lang']}&cc={cc}{ensearch}&first={first}"
+                f"&mkt={mkt}&setlang={g['lang']}&first={first}"
             )
             await page.goto(url, wait_until="domcontentloaded", timeout=45000)
             if await guard_block(page, ctx, self._check_captcha, bool(results)) == "break":

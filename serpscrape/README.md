@@ -220,7 +220,10 @@ random language), DuckDuckGo returns nothing. To reduce this:
   [python3-capsolver](https://github.com/AndreiDrang/python3-capsolver). The key is encrypted at
   rest.
 - **Proxies** — for **Google** especially, a datacenter IP will still get blocked; configure a
-  **residential proxy** per task. Bing/DuckDuckGo usually work without one once headful is on.
+  **residential proxy** per task. DuckDuckGo usually works without one once headful is on.
+  **Bing geolocates by the egress IP** and overrides the `mkt`/locale hints, so to get results
+  for a specific country reliably you need a proxy *in that country* — without it, Bing returns
+  results localized to wherever the server's IP resolves.
 
 If an engine is blocked mid-run, results already collected are kept and the task completes with
 a note rather than failing outright.
