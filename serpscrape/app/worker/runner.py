@@ -56,7 +56,10 @@ async def run_task(task_id: int) -> None:
         task = await s.get(Task, task_id)
         if task is None:
             return
-        if task.status not in ("queued", "paused"):
+        # The queue claimer (_claim_next) atomically moves the row to "running"
+        # before handing it here, so "running" is the expected state. "queued"/
+        # "paused" are accepted too in case run_task is invoked directly.
+        if task.status not in ("queued", "paused", "running"):
             return
         task.status = "running"
         task.started_at = task.started_at or datetime.now(timezone.utc)
