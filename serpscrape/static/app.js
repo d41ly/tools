@@ -1,15 +1,21 @@
-function _defaultForm() {
+const _FALLBACK_DEFAULTS = {
+  per_page_delay_ms: 1500, per_keyword_delay_ms: 5000, max_results: 50,
+  engines: ['google'], proxy_server: '', proxy_username: '',
+};
+
+function _defaultForm(d) {
+  d = d || _FALLBACK_DEFAULTS;
   return {
     name: '',
     keywordsText: '',
-    engines: ['google'],
+    engines: [...(d.engines && d.engines.length ? d.engines : ['google'])],
     country: 'US',
-    per_page_delay_ms: 1500,
-    per_keyword_delay_ms: 5000,
-    max_results: 50,
+    per_page_delay_ms: d.per_page_delay_ms,
+    per_keyword_delay_ms: d.per_keyword_delay_ms,
+    max_results: d.max_results,
     notify_email: '',
-    useProxy: false,
-    proxy: { server: '', username: '', password: '' },
+    useProxy: !!d.proxy_server,
+    proxy: { server: d.proxy_server || '', username: d.proxy_username || '', password: '' },
   };
 }
 
@@ -28,6 +34,7 @@ function serpApp() {
     engines: ['google', 'bing', 'duckduckgo'],
 
     form: _defaultForm(),
+    taskDefaults: { ..._FALLBACK_DEFAULTS },
     submitting: false,
     formError: '',
 
@@ -45,7 +52,13 @@ function serpApp() {
     histOrder: 'desc',
     histPeriod: 'all',
 
-    settings: { default_notify_email: '', smtp_host: '', smtp_port: 587, smtp_username: '', smtp_password: '', smtp_password_set: false, smtp_from: '', smtp_starttls: true, capsolver_api_key: '', capsolver_api_key_set: false },
+    settings: {
+      default_notify_email: '', smtp_host: '', smtp_port: 587, smtp_username: '', smtp_password: '',
+      smtp_password_set: false, smtp_from: '', smtp_starttls: true, capsolver_api_key: '', capsolver_api_key_set: false,
+      default_per_page_delay_ms: 1500, default_per_keyword_delay_ms: 5000, default_max_results: 50,
+      default_engines: ['google'], default_proxy_server: '', default_proxy_username: '',
+      default_proxy_password: '', default_proxy_password_set: false,
+    },
     settingsSaved: false,
     tokens: [],
     newTokenName: '',
@@ -74,14 +87,31 @@ function serpApp() {
         const [countries] = await Promise.all([
           this.api('GET', '/api/countries'),
         ]);
-        // Pin US to the top, separated from the rest by a disabled divider.
+        // Pin US to the top; the template renders a static (disabled) divider after it.
         const us = countries.find(c => c.code === 'US');
         const rest = countries.filter(c => c.code !== 'US');
-        this.countries = us ? [us, { code: '__sep__', locale: '', sep: true }, ...rest] : countries;
+        this.countries = us ? [us, ...rest] : countries;
+      } catch (e) { console.error(e); }
+      // Load user-configured task defaults and seed the New Task form from them.
+      try {
+        const s = await this.api('GET', '/api/settings');
+        this._applyTaskDefaults(s);
+        this.form = _defaultForm(this.taskDefaults);
       } catch (e) { console.error(e); }
       await this.refreshActive();
       this._loadForRoute();
       this._pollTimer = setInterval(() => this.refreshActive(), 3000);
+    },
+
+    _applyTaskDefaults(s) {
+      this.taskDefaults = {
+        per_page_delay_ms: s.default_per_page_delay_ms ?? 1500,
+        per_keyword_delay_ms: s.default_per_keyword_delay_ms ?? 5000,
+        max_results: s.default_max_results ?? 50,
+        engines: (s.default_engines && s.default_engines.length) ? s.default_engines : ['google'],
+        proxy_server: s.default_proxy_server || '',
+        proxy_username: s.default_proxy_username || '',
+      };
     },
 
     _readRoute() {
@@ -219,7 +249,7 @@ function serpApp() {
       this.submitting = true;
       try {
         await this.api('POST', '/api/tasks', payload);
-        this.form = _defaultForm();
+        this.form = _defaultForm(this.taskDefaults);
         await this.refreshAll();
       } catch (e) {
         this.formError = String(e.message || e);
@@ -299,6 +329,7 @@ function serpApp() {
         this.tokens = await this.api('GET', '/api/tokens');
         this.settings.smtp_password = '';
         this.settings.capsolver_api_key = '';
+        this.settings.default_proxy_password = '';
       } catch (e) { console.error(e); }
     },
     async saveSettings() {
@@ -309,14 +340,23 @@ function serpApp() {
         smtp_username: this.settings.smtp_username || null,
         smtp_from: this.settings.smtp_from || null,
         smtp_starttls: !!this.settings.smtp_starttls,
+        default_per_page_delay_ms: this.settings.default_per_page_delay_ms,
+        default_per_keyword_delay_ms: this.settings.default_per_keyword_delay_ms,
+        default_max_results: Math.min(100, Math.max(1, this.settings.default_max_results || 50)),
+        default_engines: this.settings.default_engines || [],
+        default_proxy_server: this.settings.default_proxy_server || null,
+        default_proxy_username: this.settings.default_proxy_username || null,
       };
       // Secret fields: only send when the user typed something (blank = keep existing).
       if (this.settings.smtp_password) payload.smtp_password = this.settings.smtp_password;
       if (this.settings.capsolver_api_key) payload.capsolver_api_key = this.settings.capsolver_api_key;
+      if (this.settings.default_proxy_password) payload.default_proxy_password = this.settings.default_proxy_password;
       try {
         this.settings = await this.api('PUT', '/api/settings', payload);
         this.settings.smtp_password = '';
         this.settings.capsolver_api_key = '';
+        this.settings.default_proxy_password = '';
+        this._applyTaskDefaults(this.settings);  // reflect new defaults in future New Task forms
         this.settingsSaved = true;
         setTimeout(() => { this.settingsSaved = false; }, 2000);
       } catch (e) { alert('Save failed: ' + e.message); }

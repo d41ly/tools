@@ -82,20 +82,22 @@ class BingScraper(Scraper):
         except Exception:
             pass
 
+        # Load page 1, then paginate by clicking Bing's real "Next page" control.
+        # URL &first= pagination is unreliable here (Bing often re-serves page 1),
+        # so we click sb_pagN instead and stay in one consented session.
+        url = (
+            f"https://www.bing.com/search?q={quote_plus(keyword)}"
+            f"&mkt={mkt}&setlang={g['lang']}&first=1"
+        )
+        await page.goto(url, wait_until="domcontentloaded", timeout=45000)
+        if await guard_block(page, ctx, self._check_captcha, False) == "break":
+            return []
+        await self._dismiss_consent(page)
+
         results: list[ScrapedResult] = []
-        first = 1
         prev_len = -1
         stall = 0
-        while len(results) < self.target_results and first <= 150:
-            # No &count= (it collapses Bing to a single page and ignores &first=).
-            url = (
-                f"https://www.bing.com/search?q={quote_plus(keyword)}"
-                f"&mkt={mkt}&setlang={g['lang']}&first={first}"
-            )
-            await page.goto(url, wait_until="domcontentloaded", timeout=45000)
-            if await guard_block(page, ctx, self._check_captcha, bool(results)) == "break":
-                break
-            await self._dismiss_consent(page)
+        for _ in range(20):
             await human_dwell(page)
             try:
                 await page.wait_for_selector("li.b_algo", timeout=12000)
@@ -112,6 +114,8 @@ class BingScraper(Scraper):
                     )
                 )
             results = dedupe(results)
+            if len(results) >= self.target_results:
+                break
             if len(results) == prev_len:
                 stall += 1
                 if stall >= 2:
@@ -119,8 +123,23 @@ class BingScraper(Scraper):
             else:
                 stall = 0
             prev_len = len(results)
-            first += 10
+
+            # "Next page" — class selector is language-independent; aria/title vary
+            # by UI language (Bing may render French from an EU IP).
+            nxt = await page.query_selector(
+                'a.sb_pagN, a.sb_pagN_bp, a[title="Next page"], a[aria-label="Next page"], a[aria-label="Page suivante"]'
+            )
+            if not nxt:
+                break
             await human_sleep(ctx.per_page_delay_ms)
+            try:
+                await nxt.click()
+                await page.wait_for_load_state("domcontentloaded")
+            except Exception:
+                break
+            await self._dismiss_consent(page)
+            if await guard_block(page, ctx, self._check_captcha, bool(results)) == "break":
+                break
 
         return results[: self.target_results]
 

@@ -120,6 +120,14 @@ class SettingsIn(BaseModel):
     smtp_from: EmailStr | None = None
     smtp_starttls: bool | None = None
     capsolver_api_key: str | None = None
+    # New-task defaults
+    default_per_page_delay_ms: int | None = Field(default=None, ge=0, le=600_000)
+    default_per_keyword_delay_ms: int | None = Field(default=None, ge=0, le=3_600_000)
+    default_max_results: int | None = Field(default=None, ge=1, le=100)
+    default_engines: list[Engine] | None = None
+    default_proxy_server: str | None = None
+    default_proxy_username: str | None = None
+    default_proxy_password: str | None = None
 
 
 class SettingsOut(BaseModel):
@@ -131,3 +139,11 @@ class SettingsOut(BaseModel):
     smtp_from: str | None = None
     smtp_starttls: bool = True
     capsolver_api_key_set: bool = False
+    # New-task defaults (with sensible fallbacks for a fresh install)
+    default_per_page_delay_ms: int = 1500
+    default_per_keyword_delay_ms: int = 5000
+    default_max_results: int = 50
+    default_engines: list[str] = Field(default_factory=lambda: ["google"])
+    default_proxy_server: str | None = None
+    default_proxy_username: str | None = None
+    default_proxy_password_set: bool = False

@@ -75,8 +75,13 @@
           <div>
             <label class="block text-sm text-slate-300 mb-1.5">Country (geo-target)</label>
             <select x-model="form.country" class="w-full bg-slate-950 border border-slate-700 rounded-md px-3 py-2 text-sm focus:border-brand-500 focus:outline-none">
-              <template x-for="c in countries" :key="c.code">
-                <option :value="c.code" :disabled="c.sep" x-text="c.sep ? '──────────' : (c.code + ' — ' + c.locale)"></option>
+              <!-- US first (countries[0]); a static, disabled divider; then the rest. -->
+              <template x-if="countries.length">
+                <option :value="countries[0].code" x-text="countries[0].code + ' — ' + countries[0].locale"></option>
+              </template>
+              <option disabled x-show="countries.length > 1">──────────</option>
+              <template x-for="c in countries.slice(1)" :key="c.code">
+                <option :value="c.code" x-text="c.code + ' — ' + c.locale"></option>
               </template>
             </select>
           </div>
@@ -271,6 +276,53 @@
         <p class="text-slate-400 text-sm mb-6">Stored in the database. Passwords are encrypted at rest.</p>
 
         <form @submit.prevent="saveSettings()" class="bg-slate-900/40 border border-slate-800 rounded-lg p-5 grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div class="md:col-span-2">
+            <h2 class="text-sm font-semibold text-slate-200">New task defaults</h2>
+            <p class="text-xs text-slate-500 mt-0.5">Used to pre-fill the New Task form.</p>
+          </div>
+          <div class="md:col-span-2">
+            <label class="block text-sm text-slate-300 mb-1.5">Default engines</label>
+            <div class="flex gap-3 flex-wrap">
+              <template x-for="e in engines" :key="e">
+                <label class="inline-flex items-center gap-2 bg-slate-950 border border-slate-700 rounded-md px-3 py-2 text-sm cursor-pointer hover:border-slate-600">
+                  <input type="checkbox" :value="e" x-model="settings.default_engines" class="accent-brand-500" />
+                  <span x-text="e"></span>
+                </label>
+              </template>
+            </div>
+          </div>
+          <div>
+            <label class="block text-sm text-slate-300 mb-1.5">Default max results per engine <span class="text-slate-500">(1–100)</span></label>
+            <input type="number" min="1" max="100" step="1" x-model.number="settings.default_max_results" class="w-full bg-slate-950 border border-slate-700 rounded-md px-3 py-2 text-sm" />
+          </div>
+          <div></div>
+          <div>
+            <label class="block text-sm text-slate-300 mb-1.5">Default per-page delay (ms)</label>
+            <input type="number" min="0" step="100" x-model.number="settings.default_per_page_delay_ms" class="w-full bg-slate-950 border border-slate-700 rounded-md px-3 py-2 text-sm" />
+          </div>
+          <div>
+            <label class="block text-sm text-slate-300 mb-1.5">Default per-keyword delay (ms)</label>
+            <input type="number" min="0" step="500" x-model.number="settings.default_per_keyword_delay_ms" class="w-full bg-slate-950 border border-slate-700 rounded-md px-3 py-2 text-sm" />
+          </div>
+          <div>
+            <label class="block text-sm text-slate-300 mb-1.5">Default proxy server <span class="text-slate-500">(optional)</span></label>
+            <input x-model="settings.default_proxy_server" placeholder="http://1.2.3.4:8080" class="w-full bg-slate-950 border border-slate-700 rounded-md px-3 py-2 text-sm" />
+          </div>
+          <div>
+            <label class="block text-sm text-slate-300 mb-1.5">Default proxy username</label>
+            <input x-model="settings.default_proxy_username" autocomplete="off" placeholder="(optional)" class="w-full bg-slate-950 border border-slate-700 rounded-md px-3 py-2 text-sm" />
+          </div>
+          <div class="md:col-span-2">
+            <label class="block text-sm text-slate-300 mb-1.5">
+              Default proxy password
+              <span x-show="settings.default_proxy_password_set" class="ml-1 text-xs text-emerald-400">(set)</span>
+            </label>
+            <input type="password" x-model="settings.default_proxy_password" autocomplete="new-password" placeholder="leave blank to keep current" class="w-full bg-slate-950 border border-slate-700 rounded-md px-3 py-2 text-sm" />
+          </div>
+
+          <div class="md:col-span-2 border-t border-slate-800 pt-3 mt-1">
+            <h2 class="text-sm font-semibold text-slate-200">Notifications &amp; SMTP</h2>
+          </div>
           <div class="md:col-span-2">
             <label class="block text-sm text-slate-300 mb-1.5">Default notification email</label>
             <input type="email" x-model="settings.default_notify_email" class="w-full bg-slate-950 border border-slate-700 rounded-md px-3 py-2 text-sm" />

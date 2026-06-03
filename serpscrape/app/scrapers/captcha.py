@@ -44,55 +44,58 @@ _DETECT_JS = r"""
 }
 """
 
-# Inject the solved token into the standard response fields.
+# Inject the solved token into the standard response fields (incl. reCAPTCHA
+# Enterprise variants like g-recaptcha-response-100000) and fire any callback.
 _INJECT_JS = r"""
 (token) => {
   const setVal = (sel) => document.querySelectorAll(sel).forEach((e) => {
-    e.value = token; e.innerHTML = token; e.style.display = 'block';
+    e.value = token; try { e.innerHTML = token; } catch (x) {} e.style.display = 'block';
   });
-  let ta = document.getElementById('g-recaptcha-response');
-  if (ta) { ta.value = token; ta.style.display = 'block'; }
-  setVal('textarea[name="g-recaptcha-response"]');
+  setVal('textarea[id^="g-recaptcha-response"]');
+  setVal('textarea[name^="g-recaptcha-response"]');
   setVal('input[name="cf-turnstile-response"]');
   setVal('textarea[name="h-captcha-response"]');
   setVal('#h-captcha-response');
-  // Best-effort: invoke a reCAPTCHA callback if the page registered one.
-  try {
-    const cfg = window.___grecaptcha_cfg;
-    if (cfg && cfg.clients) {
+  // Best-effort: invoke a registered reCAPTCHA (v2 + enterprise) callback.
+  const fire = (cfg) => {
+    try {
+      if (!cfg || !cfg.clients) return;
       for (const cid in cfg.clients) {
-        const c = cfg.clients[cid];
-        for (const k in c) {
-          const o = c[k];
-          if (o && typeof o === 'object') {
-            for (const j in o) {
-              const w = o[j];
-              if (w && typeof w === 'object' && typeof w.callback === 'function') {
-                try { w.callback(token); } catch (e) {}
-              }
-            }
+        const stack = [cfg.clients[cid]];
+        while (stack.length) {
+          const o = stack.pop();
+          if (!o || typeof o !== 'object') continue;
+          for (const k in o) {
+            const v = o[k];
+            if (typeof v === 'function' && /callback/i.test(k)) { try { v(token); } catch (e) {} }
+            else if (v && typeof v === 'object') stack.push(v);
           }
         }
       }
-    }
-  } catch (e) {}
+    } catch (e) {}
+  };
+  fire(window.___grecaptcha_cfg);
+  fire(window.__google_recaptcha_client && window.___grecaptcha_cfg);
 }
 """
 
 _SUBMIT_JS = r"""
 () => {
-  const ta = document.getElementById('g-recaptcha-response')
-    || document.querySelector('[name="g-recaptcha-response"], [name="cf-turnstile-response"], [name="h-captcha-response"]');
+  // Google's interstitial wraps the challenge in #captcha-form.
+  const cf = document.getElementById('captcha-form');
+  if (cf) { try { cf.submit(); return 'captcha-form'; } catch (e) {} }
+  const ta = document.querySelector(
+    'textarea[id^="g-recaptcha-response"], [name^="g-recaptcha-response"], [name="cf-turnstile-response"], [name="h-captcha-response"]'
+  );
   const form = ta ? ta.closest('form') : document.querySelector('form');
   if (form) {
     const btn = form.querySelector('button[type=submit], input[type=submit]');
-    if (btn) { btn.click(); return true; }
-    form.submit();
-    return true;
+    if (btn) { btn.click(); return 'btn'; }
+    try { form.submit(); return 'form'; } catch (e) {}
   }
   const anyBtn = document.querySelector('button[type=submit], input[type=submit]');
-  if (anyBtn) { anyBtn.click(); return true; }
-  return false;
+  if (anyBtn) { anyBtn.click(); return 'anybtn'; }
+  return 'none';
 }
 """
 
@@ -185,10 +188,30 @@ async def solve(page: Page, api_key: str | None) -> bool:
     if not token:
         return False
     try:
+        pre_url = page.url
         await page.evaluate(_INJECT_JS, token)
-        await page.evaluate(_SUBMIT_JS)
+        submitted = await page.evaluate(_SUBMIT_JS)
+        log.info("captcha token injected (submit=%s)", submitted)
+
+        if "/sorry/" in pre_url:
+            # Google interstitial: success ONLY if we actually leave /sorry/. The
+            # token may be valid yet Google still refuses passage from a flagged
+            # (e.g. datacenter) IP — in which case a residential proxy is required.
+            try:
+                await page.wait_for_function(
+                    "() => !location.href.includes('/sorry/')", timeout=20000
+                )
+                return True
+            except Exception:
+                log.warning(
+                    "captcha solved but Google did not clear /sorry/ — the IP is likely "
+                    "still flagged; use a residential proxy for this task"
+                )
+                return False
+
+        # Generic widget (Turnstile/hCaptcha on a normal page): let it settle.
         try:
-            await page.wait_for_load_state("domcontentloaded", timeout=20000)
+            await page.wait_for_load_state("domcontentloaded", timeout=15000)
         except Exception:
             pass
         return True

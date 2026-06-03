@@ -23,7 +23,24 @@ _FIELDS: dict[str, bool] = {
     "smtp_from": False,
     "smtp_starttls": False,
     "capsolver_api_key": True,
+    "default_per_page_delay_ms": False,
+    "default_per_keyword_delay_ms": False,
+    "default_max_results": False,
+    "default_engines": False,
+    "default_proxy_server": False,
+    "default_proxy_username": False,
+    "default_proxy_password": True,
 }
+
+
+def _int(values: dict[str, str | None], key: str, default: int) -> int:
+    v = values.get(key)
+    if v in (None, ""):
+        return default
+    try:
+        return int(v)
+    except (TypeError, ValueError):
+        return default
 
 
 async def _read(session: AsyncSession) -> dict[str, str | None]:
@@ -43,6 +60,17 @@ async def get_settings(session: AsyncSession = Depends(get_session)) -> Settings
         smtp_from=values.get("smtp_from"),
         smtp_starttls=(values.get("smtp_starttls") or "true").lower() != "false",
         capsolver_api_key_set=bool(values.get("capsolver_api_key")),
+        default_per_page_delay_ms=_int(values, "default_per_page_delay_ms", 1500),
+        default_per_keyword_delay_ms=_int(values, "default_per_keyword_delay_ms", 5000),
+        default_max_results=_int(values, "default_max_results", 50),
+        default_engines=(
+            [e for e in values["default_engines"].split(",") if e]
+            if values.get("default_engines")
+            else ["google"]
+        ),
+        default_proxy_server=values.get("default_proxy_server") or None,
+        default_proxy_username=values.get("default_proxy_username") or None,
+        default_proxy_password_set=bool(values.get("default_proxy_password")),
     )
 
 
@@ -59,6 +87,8 @@ async def update_settings(
             value = None
         elif isinstance(raw, bool):
             value = "true" if raw else "false"
+        elif isinstance(raw, list):
+            value = ",".join(str(x) for x in raw)
         else:
             value = str(raw)
         stored = encrypt(value) if (encrypted and value is not None) else value

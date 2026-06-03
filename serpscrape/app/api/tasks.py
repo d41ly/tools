@@ -11,7 +11,7 @@ from sqlalchemy import desc, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth import require_token
-from app.crypto import encrypt
+from app.crypto import decrypt, encrypt
 from app.db import get_session
 from app.models import Setting, Task
 from app.schemas import BulkDelete, TaskAction, TaskCreate, TaskOut
@@ -58,12 +58,40 @@ async def _default_notify_email(session: AsyncSession) -> str | None:
     return row[0]  # not encrypted
 
 
+async def _default_proxy(session: AsyncSession) -> tuple[str | None, str | None]:
+    """Returns (default_proxy_server, decrypted default_proxy_password)."""
+    rows = (
+        await session.execute(
+            select(Setting).where(
+                Setting.key.in_(["default_proxy_server", "default_proxy_password"])
+            )
+        )
+    ).scalars().all()
+    server = password = None
+    for r in rows:
+        if r.value is None:
+            continue
+        if r.key == "default_proxy_server":
+            server = r.value
+        elif r.key == "default_proxy_password":
+            password = decrypt(r.value) if r.encrypted else r.value
+    return server, password
+
+
 @router.post("", response_model=TaskOut, status_code=status.HTTP_201_CREATED, dependencies=[Depends(require_token)])
 async def create_task(payload: TaskCreate, session: AsyncSession = Depends(get_session)) -> TaskOut:
     notify = payload.notify_email or await _default_notify_email(session)
     proxy_enc = None
     if payload.proxy is not None:
-        proxy_enc = encrypt(json.dumps(payload.proxy.model_dump()))
+        proxy = payload.proxy.model_dump()
+        # The New Task form pre-fills the saved default proxy's server/username but
+        # never the (encrypted) password. If the password is blank and the server
+        # matches the configured default, substitute the saved password here.
+        if not proxy.get("password") and proxy.get("server"):
+            d_server, d_password = await _default_proxy(session)
+            if d_password and proxy["server"] == d_server:
+                proxy["password"] = d_password
+        proxy_enc = encrypt(json.dumps(proxy))
     t = Task(
         name=payload.name or _autoname(payload),
         keywords=payload.keywords,

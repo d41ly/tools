@@ -179,6 +179,13 @@ curl -X PUT -H "Authorization: Bearer $T" -H 'Content-Type: application/json' \
   -d '{"smtp_host":"smtp.example.com","smtp_port":587,"smtp_password":"hunter2"}' \
   http://localhost:8000/api/settings
 
+# New-task defaults (pre-fill the New Task form): engines, max results, delays, proxy
+curl -X PUT -H "Authorization: Bearer $T" -H 'Content-Type: application/json' \
+  -d '{"default_engines":["google","bing"],"default_max_results":50,
+       "default_per_page_delay_ms":1500,"default_per_keyword_delay_ms":5000,
+       "default_proxy_server":"http://1.2.3.4:8080","default_proxy_password":"secret"}' \
+  http://localhost:8000/api/settings
+
 curl -X POST -H "Authorization: Bearer $T" -H 'Content-Type: application/json' \
   -d '{"name":"ci-job"}' http://localhost:8000/api/tokens
 curl -X DELETE -H "Authorization: Bearer $T" http://localhost:8000/api/tokens/42
