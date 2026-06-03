@@ -14,22 +14,23 @@ from app.scrapers.base import (
 )
 from app.scrapers.geo import info as geo_info
 
-_EXTRACT_JS = """
+_EXTRACT_JS = r"""
 () => {
   const out = [];
   const seen = new Set();
-  const items = document.querySelectorAll('li.b_algo');
-  for (const li of items) {
+  for (const li of document.querySelectorAll('li.b_algo')) {
     const a = li.querySelector('h2 a[href]');
     if (!a) continue;
     const url = a.href;
-    if (!url || !/^https?:\\/\\//.test(url)) continue;
+    if (!url || !/^https?:\/\//.test(url)) continue;
     if (seen.has(url)) continue;
     seen.add(url);
-    const title = (a.innerText || '').trim();
-    const descEl = li.querySelector('.b_caption p, .b_lineclamp2, .b_lineclamp3, .b_lineclamp4, .b_paractl');
-    const desc = descEl ? descEl.innerText.trim() : '';
-    out.push({title, url, description: desc});
+    const descEl = li.querySelector('.b_caption p, .b_lineclamp2, .b_lineclamp3, .b_lineclamp4, .b_algoSlug');
+    out.push({
+      title: (a.innerText || '').trim(),
+      url,
+      description: descEl ? descEl.innerText.trim() : '',
+    });
   }
   return out;
 }
@@ -43,31 +44,40 @@ class BingScraper(Scraper):
         self, page: Page, keyword: str, ctx: ScrapeContext
     ) -> list[ScrapedResult]:
         g = geo_info(ctx.country)
+        mkt = g["locale"]  # e.g. "en-US" — Bing's authoritative market selector
+        mkt_l = mkt.lower()
+
+        # Lock Bing to the requested market. Without this, Bing geolocates by the
+        # server's egress IP and returns mixed-language/irrelevant results.
+        try:
+            await page.context.add_cookies(
+                [
+                    {"name": "_EDGE_S", "value": f"mkt={mkt_l}&ui={mkt_l}", "domain": ".bing.com", "path": "/"},
+                    {"name": "_EDGE_CD", "value": f"m={mkt_l}&u={mkt_l}", "domain": ".bing.com", "path": "/"},
+                    {"name": "SRCHHPGUSR", "value": f"SRCHLANG={g['lang']}", "domain": ".bing.com", "path": "/"},
+                ]
+            )
+        except Exception:
+            pass
+
         results: list[ScrapedResult] = []
         first = 1
-        per_page = 20  # Bing serves ~10-15 algorithmic results per page reliably; paginate.
-        empty_pages = 0
-        while len(results) < self.target_results and empty_pages < 2:
+        prev_len = -1
+        stall = 0
+        while len(results) < self.target_results and first <= 150:
             url = (
                 f"https://www.bing.com/search?q={quote_plus(keyword)}"
-                f"&count={per_page}&first={first}"
-                f"&cc={ctx.country.lower()}&setlang={g['lang']}"
-                f"&form=QBLH"
+                f"&mkt={mkt}&setlang={g['lang']}&first={first}&count=10"
             )
             await page.goto(url, wait_until="domcontentloaded", timeout=45000)
             await self._check_captcha(page)
             try:
-                await page.wait_for_selector("ol#b_results, li.b_algo", timeout=15000)
+                await page.wait_for_selector("li.b_algo", timeout=12000)
             except Exception:
                 await self._check_captcha(page)
                 break
 
-            extracted = await page.evaluate(_EXTRACT_JS)
-            if not extracted:
-                empty_pages += 1
-            else:
-                empty_pages = 0
-            for r in extracted:
+            for r in await page.evaluate(_EXTRACT_JS):
                 results.append(
                     ScrapedResult(
                         position=0,
@@ -76,12 +86,18 @@ class BingScraper(Scraper):
                         url=r["url"],
                     )
                 )
-            first += len(extracted) if extracted else per_page
-            if first > 200:
-                break
+            results = dedupe(results)
+            if len(results) == prev_len:
+                stall += 1
+                if stall >= 2:
+                    break
+            else:
+                stall = 0
+            prev_len = len(results)
+            first += 10
             await human_sleep(ctx.per_page_delay_ms)
 
-        return dedupe(results)[: self.target_results]
+        return results[: self.target_results]
 
     async def _check_captcha(self, page: Page) -> None:
         url = page.url.lower()
@@ -91,5 +107,5 @@ class BingScraper(Scraper):
             text = (await page.locator("body").inner_text(timeout=2000)).lower()
         except Exception:
             return
-        if "verify you are a human" in text or "blocked" in text and "bing" in text:
+        if "verify you are a human" in text or ("blocked" in text and "bing" in text):
             raise CaptchaError("Bing flagged this request")

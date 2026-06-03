@@ -89,6 +89,8 @@ async def run_task(task_id: int) -> None:
 
     try:
         last_kw = None
+        errors: list[str] = []
+        saved = 0
         for idx, (kw, eng) in enumerate(combos):
             await _check_control(task_id)
             if last_kw is not None and kw != last_kw and per_kw > 0:
@@ -101,15 +103,18 @@ async def run_task(task_id: int) -> None:
                 log.warning("Unknown engine %s on task %s, skipping", eng, task_id)
                 continue
             scraper = scraper_cls()
+            # A failure on one (engine, keyword) pair must not abandon the rest of
+            # the task. Record it and carry on; final status reflects the whole run.
             try:
                 results = await scraper.scrape(kw, ctx)
             except CaptchaError as exc:
-                await _fail(task_id, f"captcha encountered ({eng}/{kw}): {exc}")
-                return
+                errors.append(f"{eng}/{kw}: captcha encountered: {exc}")
+                log.warning("captcha task=%s engine=%s keyword=%s: %s", task_id, eng, kw, exc)
+                continue
             except Exception as exc:
                 log.exception("scrape failed task=%s engine=%s keyword=%s", task_id, eng, kw)
-                await _fail(task_id, f"{eng}/{kw} failed: {exc.__class__.__name__}: {exc}")
-                return
+                errors.append(f"{eng}/{kw}: {exc.__class__.__name__}: {exc}")
+                continue
             if results:
                 async with session_scope() as s:
                     s.add_all(
@@ -126,15 +131,29 @@ async def run_task(task_id: int) -> None:
                             for r in results
                         ]
                     )
+                saved += len(results)
+            else:
+                errors.append(f"{eng}/{kw}: no results")
         await _check_control(task_id)
         await _set_progress(task_id, total, total, current=None)
+
+        # Completed if anything was saved (note partial failures); failed only if
+        # every combo produced nothing.
+        if saved == 0 and errors:
+            await _fail(task_id, "all engines failed — " + "; ".join(errors[:10]))
+            return
+        note = ("; ".join(errors[:10]))[:2000] if errors else None
         async with session_scope() as s:
             await s.execute(
                 update(Task)
                 .where(Task.id == task_id)
-                .values(status="completed", completed_at=datetime.now(timezone.utc))
+                .values(
+                    status="completed",
+                    completed_at=datetime.now(timezone.utc),
+                    error_message=note,
+                )
             )
-        log.info("task %s completed", task_id)
+        log.info("task %s completed (%d results, %d combo issues)", task_id, saved, len(errors))
         # Notify outside the transaction
         from app.notify.email import send_completion  # local import to avoid cycles
         try:
