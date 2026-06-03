@@ -11,8 +11,9 @@
     }}};
   </script>
   <link rel="stylesheet" href="/static/styles.css" />
-  <script defer src="https://unpkg.com/alpinejs@3.14.7/dist/cdn.min.js"></script>
+  <!-- IMPORTANT: app.js must be loaded BEFORE Alpine so serpApp() is defined when Alpine.start() runs -->
   <script defer src="/static/app.js"></script>
+  <script defer src="https://unpkg.com/alpinejs@3.14.7/dist/cdn.min.js"></script>
 </head>
 <body class="bg-slate-950 text-slate-100 min-h-screen antialiased" x-data="serpApp()" x-init="boot()">
 
