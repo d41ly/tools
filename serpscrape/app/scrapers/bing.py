@@ -65,16 +65,27 @@ class BingScraper(Scraper):
         prev_len = -1
         stall = 0
         while len(results) < self.target_results and first <= 150:
+            # NOTE: do NOT send &count= — it makes Bing collapse to a single page
+            # and ignore &first=, which caps results at ~10. Plain &first= paginates.
             url = (
                 f"https://www.bing.com/search?q={quote_plus(keyword)}"
-                f"&mkt={mkt}&setlang={g['lang']}&first={first}&count=10"
+                f"&mkt={mkt}&setlang={g['lang']}&first={first}"
             )
             await page.goto(url, wait_until="domcontentloaded", timeout=45000)
-            await self._check_captcha(page)
+            try:
+                await self._check_captcha(page)
+            except CaptchaError:
+                if results:
+                    break
+                raise
             try:
                 await page.wait_for_selector("li.b_algo", timeout=12000)
             except Exception:
-                await self._check_captcha(page)
+                try:
+                    await self._check_captcha(page)
+                except CaptchaError:
+                    if not results:
+                        raise
                 break
 
             for r in await page.evaluate(_EXTRACT_JS):

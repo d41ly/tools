@@ -6,6 +6,7 @@ function _defaultForm() {
     country: 'US',
     per_page_delay_ms: 1500,
     per_keyword_delay_ms: 5000,
+    max_results: 100,
     notify_email: '',
     useProxy: false,
     proxy: { server: '', username: '', password: '' },
@@ -32,6 +33,7 @@ function serpApp() {
 
     activeTasks: [],
     allTasks: [],
+    selectedIds: [],
     _pollTimer: null,
 
     settings: { default_notify_email: '', smtp_host: '', smtp_port: 587, smtp_username: '', smtp_password: '', smtp_password_set: false, smtp_from: '', smtp_starttls: true },
@@ -44,6 +46,7 @@ function serpApp() {
     resultGroups: [],
     selectedGroup: null,
     results: [],
+    sheetsCopied: false,
 
     async boot() {
       this._readRoute();
@@ -122,6 +125,7 @@ function serpApp() {
         country: this.form.country,
         per_page_delay_ms: this.form.per_page_delay_ms,
         per_keyword_delay_ms: this.form.per_keyword_delay_ms,
+        max_results: Math.min(100, Math.max(1, this.form.max_results || 100)),
         notify_email: this.form.notify_email || null,
         proxy: null,
       };
@@ -152,6 +156,34 @@ function serpApp() {
       } catch (e) {
         alert('Failed: ' + e.message);
       }
+    },
+
+    toggleSelect(id) {
+      const i = this.selectedIds.indexOf(id);
+      if (i === -1) this.selectedIds.push(id);
+      else this.selectedIds.splice(i, 1);
+    },
+    toggleSelectAll(ev) {
+      this.selectedIds = ev.target.checked ? this.allTasks.map(t => t.id) : [];
+    },
+    async deleteTask(t) {
+      if (!confirm('Delete task "' + t.name + '" and all its results? This cannot be undone.')) return;
+      try {
+        await this.api('DELETE', '/api/tasks/' + t.id);
+        this.selectedIds = this.selectedIds.filter(id => id !== t.id);
+        if (this.resultsTask && this.resultsTask.id === t.id) this.resultsTask = null;
+        await this.refreshAll();
+      } catch (e) { alert('Delete failed: ' + e.message); }
+    },
+    async deleteSelected() {
+      const n = this.selectedIds.length;
+      if (!n) return;
+      if (!confirm('Delete ' + n + ' task(s) and all their results? This cannot be undone.')) return;
+      try {
+        await this.api('POST', '/api/tasks/bulk-delete', { ids: this.selectedIds });
+        this.selectedIds = [];
+        await this.refreshAll();
+      } catch (e) { alert('Bulk delete failed: ' + e.message); }
     },
 
     statusClass(s) {
@@ -252,6 +284,42 @@ function serpApp() {
         const data = await this.api('GET', '/api/tasks/' + this.resultsTask.id + '/results?' + q.toString());
         this.results = data.items;
       } catch (e) { console.error(e); }
+    },
+    async exportResults(format) {
+      if (!this.resultsTask) return;
+      // Fetch with auth header, then download the returned blob. A plain <a download>
+      // can't send the bearer token, so we go through fetch + object URL.
+      try {
+        const r = await fetch('/api/tasks/' + this.resultsTask.id + '/export?format=' + format, {
+          headers: { 'Authorization': 'Bearer ' + this.token },
+        });
+        if (!r.ok) throw new Error('HTTP ' + r.status);
+        const blob = await r.blob();
+        const cd = r.headers.get('Content-Disposition') || '';
+        const m = cd.match(/filename="?([^"]+)"?/);
+        const filename = m ? m[1] : ('task_' + this.resultsTask.id + '.' + format);
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = filename;
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        URL.revokeObjectURL(url);
+      } catch (e) { alert('Export failed: ' + e.message); }
+    },
+    async copyForSheets() {
+      if (!this.resultsTask) return;
+      try {
+        const r = await fetch('/api/tasks/' + this.resultsTask.id + '/export?format=tsv', {
+          headers: { 'Authorization': 'Bearer ' + this.token },
+        });
+        if (!r.ok) throw new Error('HTTP ' + r.status);
+        const tsv = await r.text();
+        await navigator.clipboard.writeText(tsv);
+        this.sheetsCopied = true;
+        setTimeout(() => { this.sheetsCopied = false; }, 2000);
+      } catch (e) { alert('Copy failed: ' + e.message + ' (clipboard needs HTTPS or localhost)'); }
     },
   };
 }

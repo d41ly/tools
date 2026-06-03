@@ -72,6 +72,7 @@ async def run_task(task_id: int) -> None:
         proxy_enc = task.proxy_config
         per_page = task.per_page_delay_ms
         per_kw = task.per_keyword_delay_ms
+        max_results = task.max_results
 
     proxy = None
     if proxy_enc:
@@ -103,6 +104,7 @@ async def run_task(task_id: int) -> None:
                 log.warning("Unknown engine %s on task %s, skipping", eng, task_id)
                 continue
             scraper = scraper_cls()
+            scraper.target_results = max_results
             # A failure on one (engine, keyword) pair must not abandon the rest of
             # the task. Record it and carry on; final status reflects the whole run.
             try:

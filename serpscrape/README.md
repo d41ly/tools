@@ -67,29 +67,39 @@ curl -X POST http://localhost:8000/api/tasks \
     "country": "US",
     "per_page_delay_ms": 1500,
     "per_keyword_delay_ms": 60000,
+    "max_results": 100,
     "notify_email": "ops@example.com",
     "proxy": {"server": "http://1.2.3.4:8080", "username": "u", "password": "p"}
   }'
 ```
 
-### List tasks / get one / control
+`max_results` (1–100) caps how many results are fetched per engine per keyword.
+
+### List tasks / get one / control / delete
 
 ```bash
 curl -H "Authorization: Bearer $T" http://localhost:8000/api/tasks
 curl -H "Authorization: Bearer $T" http://localhost:8000/api/tasks/123
 curl -X PATCH -H "Authorization: Bearer $T" -H 'Content-Type: application/json' \
   -d '{"action":"pause"}' http://localhost:8000/api/tasks/123
+# delete one task (and its results), or many at once
+curl -X DELETE -H "Authorization: Bearer $T" http://localhost:8000/api/tasks/123
+curl -X POST -H "Authorization: Bearer $T" -H 'Content-Type: application/json' \
+  -d '{"ids":[123,124,125]}' http://localhost:8000/api/tasks/bulk-delete
 ```
 
 `action` is one of `pause`, `resume`, `cancel`.
 
-### Get results
+### Get results / export
 
 ```bash
 curl -H "Authorization: Bearer $T" \
   "http://localhost:8000/api/tasks/123/results?engine=google&keyword=best+running+shoes&limit=200"
 curl -H "Authorization: Bearer $T" \
   "http://localhost:8000/api/tasks/123/summary"
+# export all results of a task as csv / xlsx / tsv (tsv pastes straight into Google Sheets)
+curl -H "Authorization: Bearer $T" \
+  "http://localhost:8000/api/tasks/123/export?format=xlsx" -o results.xlsx
 ```
 
 ### Settings & tokens

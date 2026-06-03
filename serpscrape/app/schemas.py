@@ -22,6 +22,7 @@ class TaskCreate(BaseModel):
     country: str = Field(default="US", min_length=2, max_length=2)
     per_page_delay_ms: int = Field(default=1500, ge=0, le=600_000)
     per_keyword_delay_ms: int = Field(default=5000, ge=0, le=3_600_000)
+    max_results: int = Field(default=100, ge=1, le=100)
     notify_email: EmailStr | None = None
     proxy: ProxyConfig | None = None
 
@@ -57,6 +58,7 @@ class TaskOut(BaseModel):
     country: str
     per_page_delay_ms: int
     per_keyword_delay_ms: int
+    max_results: int
     notify_email: str | None
     has_proxy: bool
     status: TaskStatus
@@ -71,6 +73,10 @@ class TaskOut(BaseModel):
 
 class TaskAction(BaseModel):
     action: Literal["pause", "resume", "cancel"]
+
+
+class BulkDelete(BaseModel):
+    ids: list[int] = Field(..., min_length=1, max_length=1000)
 
 
 class ResultOut(BaseModel):

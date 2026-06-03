@@ -91,6 +91,11 @@
           </div>
 
           <div class="lg:col-span-2">
+            <label class="block text-sm text-slate-300 mb-1.5">Max results per engine <span class="text-slate-500">(1–100)</span></label>
+            <input type="number" min="1" max="100" step="1" x-model.number="form.max_results" class="w-full bg-slate-950 border border-slate-700 rounded-md px-3 py-2 text-sm" />
+          </div>
+
+          <div class="lg:col-span-2">
             <label class="block text-sm text-slate-300 mb-1.5">Notification email <span class="text-slate-500">(blank = use default from Settings)</span></label>
             <input type="email" x-model="form.notify_email" placeholder="ops@example.com" class="w-full bg-slate-950 border border-slate-700 rounded-md px-3 py-2 text-sm" />
           </div>
@@ -139,10 +144,12 @@
                       <div class="h-full bg-brand-500" :style="'width:' + progressPct(t) + '%'"></div>
                     </div>
                   </td>
-                  <td class="px-3 py-2 align-top text-right space-x-1">
-                    <button x-show="t.status === 'running' || t.status === 'queued'" @click="controlTask(t, 'pause')" class="text-xs px-2 py-1 rounded bg-slate-800 hover:bg-slate-700">Pause</button>
-                    <button x-show="t.status === 'paused'" @click="controlTask(t, 'resume')" class="text-xs px-2 py-1 rounded bg-slate-800 hover:bg-slate-700">Resume</button>
-                    <button @click="controlTask(t, 'cancel')" class="text-xs px-2 py-1 rounded bg-rose-900/40 hover:bg-rose-800/60 text-rose-200">Cancel</button>
+                  <td class="px-3 py-2 align-top text-right">
+                    <div class="flex items-center justify-end gap-2">
+                      <button x-show="t.status === 'running' || t.status === 'queued'" @click="controlTask(t, 'pause')" class="text-xs px-2 py-1 rounded bg-slate-800 hover:bg-slate-700">Pause</button>
+                      <button x-show="t.status === 'paused'" @click="controlTask(t, 'resume')" class="text-xs px-2 py-1 rounded bg-slate-800 hover:bg-slate-700">Resume</button>
+                      <button @click="controlTask(t, 'cancel')" class="text-xs px-2 py-1 rounded bg-rose-900/40 hover:bg-rose-800/60 text-rose-200">Cancel</button>
+                    </div>
                   </td>
                 </tr>
               </template>
@@ -155,12 +162,24 @@
       <!-- History -->
       <section x-show="route === 'history'" class="p-6 lg:p-8 max-w-6xl mx-auto" x-cloak>
         <h1 class="text-2xl font-semibold mb-1">History</h1>
-        <p class="text-slate-400 text-sm mb-6">All tasks, newest first. Click a row to view results.</p>
+        <p class="text-slate-400 text-sm mb-4">All tasks, newest first. Click a row to view results.</p>
+
+        <div class="flex items-center gap-3 mb-3 h-8">
+          <button x-show="selectedIds.length > 0" @click="deleteSelected()"
+                  class="text-xs px-3 py-1.5 rounded bg-rose-900/50 hover:bg-rose-800/70 text-rose-100 border border-rose-800">
+            Delete selected (<span x-text="selectedIds.length"></span>)
+          </button>
+          <span x-show="selectedIds.length > 0" class="text-xs text-slate-500" x-text="'Deletes tasks and their results permanently.'"></span>
+        </div>
 
         <div class="border border-slate-800 rounded-lg overflow-hidden">
           <table class="w-full text-sm">
             <thead class="bg-slate-900/60 text-slate-400 text-xs uppercase tracking-wider">
               <tr>
+                <th class="px-3 py-2 w-8 text-left">
+                  <input type="checkbox" class="accent-brand-500 align-middle" @change="toggleSelectAll($event)"
+                         :checked="allTasks.length > 0 && selectedIds.length === allTasks.length" />
+                </th>
                 <th class="px-3 py-2 text-left">Created</th>
                 <th class="px-3 py-2 text-left">Name</th>
                 <th class="px-3 py-2 text-left">Status</th>
@@ -171,6 +190,10 @@
             <tbody>
               <template x-for="t in allTasks" :key="t.id">
                 <tr class="border-t border-slate-800 hover:bg-slate-900/40 cursor-pointer" @click="openResults(t)">
+                  <td class="px-3 py-2 align-top" @click.stop>
+                    <input type="checkbox" class="accent-brand-500 align-middle" :value="t.id"
+                           :checked="selectedIds.includes(t.id)" @change="toggleSelect(t.id)" />
+                  </td>
                   <td class="px-3 py-2 align-top text-xs text-slate-400" x-text="formatTime(t.created_at)"></td>
                   <td class="px-3 py-2 align-top">
                     <div class="font-medium" x-text="t.name"></div>
@@ -183,14 +206,17 @@
                   <td class="px-3 py-2 align-top">
                     <div class="text-xs text-slate-300" x-text="progressText(t)"></div>
                   </td>
-                  <td class="px-3 py-2 align-top text-right space-x-1" @click.stop>
-                    <button x-show="t.status === 'running' || t.status === 'queued'" @click="controlTask(t, 'pause')" class="text-xs px-2 py-1 rounded bg-slate-800 hover:bg-slate-700">Pause</button>
-                    <button x-show="t.status === 'paused'" @click="controlTask(t, 'resume')" class="text-xs px-2 py-1 rounded bg-slate-800 hover:bg-slate-700">Resume</button>
-                    <button x-show="['queued','running','paused'].includes(t.status)" @click="controlTask(t, 'cancel')" class="text-xs px-2 py-1 rounded bg-rose-900/40 hover:bg-rose-800/60 text-rose-200">Cancel</button>
+                  <td class="px-3 py-2 align-top text-right" @click.stop>
+                    <div class="flex items-center justify-end gap-2">
+                      <button x-show="t.status === 'running' || t.status === 'queued'" @click="controlTask(t, 'pause')" class="text-xs px-2 py-1 rounded bg-slate-800 hover:bg-slate-700">Pause</button>
+                      <button x-show="t.status === 'paused'" @click="controlTask(t, 'resume')" class="text-xs px-2 py-1 rounded bg-slate-800 hover:bg-slate-700">Resume</button>
+                      <button x-show="['queued','running','paused'].includes(t.status)" @click="controlTask(t, 'cancel')" class="text-xs px-2 py-1 rounded bg-amber-900/40 hover:bg-amber-800/60 text-amber-200">Cancel</button>
+                      <button @click="deleteTask(t)" class="text-xs px-2 py-1 rounded bg-rose-900/40 hover:bg-rose-800/60 text-rose-200">Delete</button>
+                    </div>
                   </td>
                 </tr>
               </template>
-              <tr x-show="allTasks.length === 0"><td colspan="5" class="px-3 py-6 text-center text-slate-500 text-sm">No tasks yet.</td></tr>
+              <tr x-show="allTasks.length === 0"><td colspan="6" class="px-3 py-6 text-center text-slate-500 text-sm">No tasks yet.</td></tr>
             </tbody>
           </table>
         </div>
@@ -212,7 +238,13 @@
           </div>
           <div>
             <label class="block text-sm text-slate-300 mb-1.5">SMTP port</label>
-            <input type="number" x-model.number="settings.smtp_port" class="w-full bg-slate-950 border border-slate-700 rounded-md px-3 py-2 text-sm" />
+            <select x-model.number="settings.smtp_port" class="w-full bg-slate-950 border border-slate-700 rounded-md px-3 py-2 text-sm focus:border-brand-500 focus:outline-none">
+              <option :value="587">587 — STARTTLS (submission)</option>
+              <option :value="465">465 — SSL/TLS (SMTPS)</option>
+              <option :value="25">25 — plain/relay</option>
+              <option :value="2525">2525 — alt submission</option>
+              <option :value="1025">1025 — local dev (Mailpit/Mailhog)</option>
+            </select>
           </div>
           <div>
             <label class="block text-sm text-slate-300 mb-1.5">SMTP username</label>
@@ -299,9 +331,17 @@
             </div>
             <button @click="resultsTask = null" class="text-slate-400 hover:text-white text-2xl leading-none">&times;</button>
           </div>
-          <div class="mb-4">
-            <span :class="statusClass(resultsTask.status)" class="px-2 py-0.5 rounded text-xs" x-text="resultsTask.status"></span>
-            <span x-show="resultsTask.error_message" class="ml-2 text-xs text-rose-400" x-text="resultsTask.error_message"></span>
+          <div class="mb-4 flex items-center justify-between gap-3 flex-wrap">
+            <div>
+              <span :class="statusClass(resultsTask.status)" class="px-2 py-0.5 rounded text-xs" x-text="resultsTask.status"></span>
+              <span x-show="resultsTask.error_message" class="ml-2 text-xs text-rose-400" x-text="resultsTask.error_message"></span>
+            </div>
+            <div class="flex items-center gap-2">
+              <span class="text-xs text-slate-500">Export:</span>
+              <button @click="exportResults('csv')" class="text-xs px-2.5 py-1 rounded bg-slate-800 hover:bg-slate-700 border border-slate-700">CSV</button>
+              <button @click="exportResults('xlsx')" class="text-xs px-2.5 py-1 rounded bg-slate-800 hover:bg-slate-700 border border-slate-700">XLSX</button>
+              <button @click="copyForSheets()" class="text-xs px-2.5 py-1 rounded bg-slate-800 hover:bg-slate-700 border border-slate-700" x-text="sheetsCopied ? 'Copied!' : 'Copy for Sheets'"></button>
+            </div>
           </div>
 
           <div class="flex flex-wrap gap-2 mb-4 text-xs">

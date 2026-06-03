@@ -48,6 +48,7 @@ class Task(Base):
     proxy_config: Mapped[str | None] = mapped_column(Text, nullable=True)  # encrypted JSON
     per_page_delay_ms: Mapped[int] = mapped_column(default=1500, nullable=False)
     per_keyword_delay_ms: Mapped[int] = mapped_column(default=5000, nullable=False)
+    max_results: Mapped[int] = mapped_column(default=100, nullable=False)
     notify_email: Mapped[str | None] = mapped_column(String(255), nullable=True)
     status: Mapped[str] = mapped_column(String(16), default="queued", nullable=False, index=True)
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)

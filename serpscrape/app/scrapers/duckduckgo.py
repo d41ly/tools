@@ -14,19 +14,17 @@ from app.scrapers.base import (
 )
 from app.scrapers.geo import info as geo_info
 
-# The server-rendered HTML endpoint (html.duckduckgo.com/html/) returns stable,
-# parseable markup without requiring the JS SPA to hydrate. Each result is a
-# `div.result` with an `a.result__a` title link and an `a.result__snippet`.
+# The "lite" endpoint is the most bot-tolerant DuckDuckGo surface: a plain
+# table of results with stable classes (a.result-link / td.result-snippet) and
+# a POST "Next Page" form. It avoids the JS SPA and the flakier /html/ endpoint.
 _EXTRACT_JS = r"""
 () => {
   const out = [];
   const seen = new Set();
-  for (const el of document.querySelectorAll('div.result, div.web-result')) {
-    if (el.classList.contains('result--ad') || el.classList.contains('result--no-result')) continue;
-    const a = el.querySelector('a.result__a');
-    if (!a) continue;
+  const links = Array.from(document.querySelectorAll('a.result-link'));
+  const snippets = Array.from(document.querySelectorAll('.result-snippet'));
+  links.forEach((a, i) => {
     let url = a.href || a.getAttribute('href') || '';
-    // DDG wraps outbound links as //duckduckgo.com/l/?uddg=<encoded-real-url>
     if (url.includes('duckduckgo.com/l/?')) {
       try {
         const u = new URL(url, location.href);
@@ -34,12 +32,12 @@ _EXTRACT_JS = r"""
         if (real) url = decodeURIComponent(real);
       } catch (e) { /* ignore */ }
     }
-    if (!/^https?:\/\//.test(url)) continue;
-    if (seen.has(url)) continue;
+    if (!/^https?:\/\//.test(url)) return;
+    if (seen.has(url)) return;
     seen.add(url);
-    const s = el.querySelector('a.result__snippet, .result__snippet');
+    const s = snippets[i];
     out.push({ title: (a.innerText || '').trim(), url, description: s ? s.innerText.trim() : '' });
-  }
+  });
   return out;
 }
 """
@@ -53,7 +51,7 @@ class DuckDuckGoScraper(Scraper):
     ) -> list[ScrapedResult]:
         g = geo_info(ctx.country)
         url = (
-            f"https://html.duckduckgo.com/html/?q={quote_plus(keyword)}"
+            f"https://lite.duckduckgo.com/lite/?q={quote_plus(keyword)}"
             f"&kl={g['ddg']}"
         )
         await page.goto(url, wait_until="domcontentloaded", timeout=45000)
@@ -61,13 +59,16 @@ class DuckDuckGoScraper(Scraper):
 
         results: list[ScrapedResult] = []
         prev_len = -1
-        # The HTML endpoint serves ~20-30 results per page; paginate via the
-        # POST "Next" form at the bottom until we reach the target or run dry.
-        for _ in range(8):
+        # ~10 results per page; paginate via the POST "Next Page" form.
+        for _ in range(12):
             try:
-                await page.wait_for_selector("div.result, div.web-result", timeout=12000)
+                await page.wait_for_selector("a.result-link", timeout=12000)
             except Exception:
-                await self._check_block(page)
+                try:
+                    await self._check_block(page)
+                except CaptchaError:
+                    if not results:
+                        raise
                 break
 
             for r in await page.evaluate(_EXTRACT_JS):
@@ -83,16 +84,15 @@ class DuckDuckGoScraper(Scraper):
             if len(results) >= self.target_results:
                 break
             if len(results) == prev_len:
-                break  # this page added nothing new
+                break  # page added nothing new
             prev_len = len(results)
 
-            # The last submit button in the bottom nav is always "Next".
-            submits = await page.query_selector_all('.nav-link input[type="submit"]')
-            if not submits:
+            nxt = await page.query_selector('input[type="submit"][value*="Next"]')
+            if not nxt:
                 break
             await human_sleep(ctx.per_page_delay_ms)
             try:
-                await submits[-1].click()
+                await nxt.click()
                 await page.wait_for_load_state("domcontentloaded")
             except Exception:
                 break
@@ -107,5 +107,5 @@ class DuckDuckGoScraper(Scraper):
             text = (await page.locator("body").inner_text(timeout=2000)).lower()
         except Exception:
             return
-        if "anomaly" in text and "automated" in text:
+        if "if this error persists" in text or ("anomaly" in text and "automated" in text):
             raise CaptchaError("DuckDuckGo flagged this request as automated")

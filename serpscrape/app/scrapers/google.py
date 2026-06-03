@@ -79,11 +79,22 @@ class GoogleScraper(Scraper):
             )
             await page.goto(url, wait_until="domcontentloaded", timeout=45000)
             await self._handle_consent(page)
-            await self._check_captcha(page)
+            # A captcha on a later page should keep the results we already have;
+            # only fail outright if we were blocked before collecting anything.
+            try:
+                await self._check_captcha(page)
+            except CaptchaError:
+                if results:
+                    break
+                raise
             try:
                 await page.wait_for_selector("div#search, div#rso, div#main", timeout=12000)
             except Exception:
-                await self._check_captcha(page)
+                try:
+                    await self._check_captcha(page)
+                except CaptchaError:
+                    if not results:
+                        raise
                 break
 
             extracted = await page.evaluate(_EXTRACT_JS)

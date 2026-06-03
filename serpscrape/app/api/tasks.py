@@ -4,6 +4,8 @@ import json
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi.responses import Response
+from sqlalchemy import delete as sql_delete
 from sqlalchemy import desc, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -11,7 +13,7 @@ from app.auth import require_token
 from app.crypto import encrypt
 from app.db import get_session
 from app.models import Setting, Task
-from app.schemas import TaskAction, TaskCreate, TaskOut
+from app.schemas import BulkDelete, TaskAction, TaskCreate, TaskOut
 
 router = APIRouter(prefix="/api/tasks", tags=["tasks"])
 
@@ -25,6 +27,7 @@ def _task_to_out(t: Task) -> TaskOut:
         country=t.country,
         per_page_delay_ms=t.per_page_delay_ms,
         per_keyword_delay_ms=t.per_keyword_delay_ms,
+        max_results=t.max_results,
         notify_email=t.notify_email,
         has_proxy=bool(t.proxy_config),
         status=t.status,
@@ -68,6 +71,7 @@ async def create_task(payload: TaskCreate, session: AsyncSession = Depends(get_s
         proxy_config=proxy_enc,
         per_page_delay_ms=payload.per_page_delay_ms,
         per_keyword_delay_ms=payload.per_keyword_delay_ms,
+        max_results=payload.max_results,
         notify_email=notify,
         status="queued",
         progress={"done": 0, "total": len(payload.keywords) * len(payload.engines)},
@@ -136,3 +140,27 @@ async def control_task(
     await session.commit()
     await session.refresh(t)
     return _task_to_out(t)
+
+
+@router.post("/bulk-delete", response_model=dict, dependencies=[Depends(require_token)])
+async def bulk_delete(payload: BulkDelete, session: AsyncSession = Depends(get_session)) -> dict:
+    # Cancel any still-active rows first so the worker stops touching them, then
+    # delete. task_results rows are removed via ON DELETE CASCADE.
+    await session.execute(
+        update(Task)
+        .where(Task.id.in_(payload.ids), Task.status.in_(("queued", "running", "paused")))
+        .values(status="canceled", completed_at=datetime.now(timezone.utc))
+    )
+    res = await session.execute(sql_delete(Task).where(Task.id.in_(payload.ids)))
+    await session.commit()
+    return {"deleted": int(res.rowcount or 0)}
+
+
+@router.delete("/{task_id}", status_code=204, response_class=Response, dependencies=[Depends(require_token)])
+async def delete_task(task_id: int, session: AsyncSession = Depends(get_session)) -> Response:
+    t = await session.get(Task, task_id)
+    if t is None:
+        raise HTTPException(404, "Task not found")
+    await session.delete(t)
+    await session.commit()
+    return Response(status_code=204)
