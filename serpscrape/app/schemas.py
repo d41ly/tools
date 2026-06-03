@@ -119,6 +119,7 @@ class SettingsIn(BaseModel):
     smtp_password: str | None = None
     smtp_from: EmailStr | None = None
     smtp_starttls: bool | None = None
+    capsolver_api_key: str | None = None
 
 
 class SettingsOut(BaseModel):
@@ -129,3 +130,4 @@ class SettingsOut(BaseModel):
     smtp_password_set: bool = False
     smtp_from: str | None = None
     smtp_starttls: bool = True
+    capsolver_api_key_set: bool = False

@@ -22,6 +22,7 @@ _FIELDS: dict[str, bool] = {
     "smtp_password": True,
     "smtp_from": False,
     "smtp_starttls": False,
+    "capsolver_api_key": True,
 }
 
 
@@ -41,6 +42,7 @@ async def get_settings(session: AsyncSession = Depends(get_session)) -> Settings
         smtp_password_set=bool(values.get("smtp_password")),
         smtp_from=values.get("smtp_from"),
         smtp_starttls=(values.get("smtp_starttls") or "true").lower() != "false",
+        capsolver_api_key_set=bool(values.get("capsolver_api_key")),
     )
 
 

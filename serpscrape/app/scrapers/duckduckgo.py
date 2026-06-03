@@ -10,6 +10,8 @@ from app.scrapers.base import (
     ScrapedResult,
     Scraper,
     dedupe,
+    guard_block,
+    human_dwell,
     human_sleep,
 )
 from app.scrapers.geo import info as geo_info
@@ -55,20 +57,17 @@ class DuckDuckGoScraper(Scraper):
             f"&kl={g['ddg']}"
         )
         await page.goto(url, wait_until="domcontentloaded", timeout=45000)
-        await self._check_block(page)
 
         results: list[ScrapedResult] = []
         prev_len = -1
         # ~10 results per page; paginate via the POST "Next Page" form.
         for _ in range(12):
+            if await guard_block(page, ctx, self._check_block, bool(results)) == "break":
+                break
+            await human_dwell(page)
             try:
                 await page.wait_for_selector("a.result-link", timeout=12000)
             except Exception:
-                try:
-                    await self._check_block(page)
-                except CaptchaError:
-                    if not results:
-                        raise
                 break
 
             for r in await page.evaluate(_EXTRACT_JS):

@@ -124,10 +124,37 @@ Interactive API docs at `/api/docs`.
   so multiple replicas would coexist safely (default deployment is a single replica).
 - **PostgreSQL 16** with four tables: `settings`, `api_tokens`, `tasks`, `task_results`.
   Migrations live in `alembic/versions/`.
-- **Playwright** (Chromium) launched per scrape with stealth, randomized UA/viewport, and the
+- **Playwright** (Chromium) launched per scrape with stealth, randomized viewport, and the
   user-supplied proxy and country locale.
 - **Static SPA** (vanilla HTML + Tailwind via CDN + Alpine.js) served by the same FastAPI
   process. No build step.
+
+## Anti-detection & captchas
+
+Search engines fingerprint headless browsers aggressively. Symptoms when detected:
+Google shows a captcha, Bing returns *decoy* results (plausible but unrelated, often in a
+random language), DuckDuckGo returns nothing. To reduce this:
+
+- **Headful under Xvfb** — Chromium runs in headful mode on a virtual display (started by the
+  entrypoint), which is far harder to fingerprint than true headless. Set `SCRAPER_HEADFUL=0`
+  to force headless (e.g. local dev without Xvfb); the launcher also auto-falls back to
+  headless if no display is available.
+- **Fingerprint evasions** — `playwright-stealth` plus an init script that normalises
+  `navigator.webdriver`, `plugins`, `languages`, the `chrome` object, WebGL vendor/renderer,
+  and device specs. The real bundled-Chromium user agent is used as-is (a hand-rolled UA with a
+  mismatched version is itself a tell).
+- **Human-like behaviour** — variable jittered delays, small randomized mouse moves and scrolls
+  on every page, in addition to the per-task page/keyword delays.
+- **Capsolver (optional)** — set a Capsolver API key in **Settings**. When a reCAPTCHA /
+  hCaptcha / Cloudflare Turnstile is detected, the token is solved remotely, injected, and the
+  challenge submitted, then scraping continues. Uses
+  [python3-capsolver](https://github.com/AndreiDrang/python3-capsolver). The key is encrypted at
+  rest.
+- **Proxies** — for **Google** especially, a datacenter IP will still get blocked; configure a
+  **residential proxy** per task. Bing/DuckDuckGo usually work without one once headful is on.
+
+If an engine is blocked mid-run, results already collected are kept and the task completes with
+a note rather than failing outright.
 
 ## Security notes
 

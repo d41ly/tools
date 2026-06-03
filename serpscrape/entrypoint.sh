@@ -22,5 +22,11 @@ PY
 echo "[entrypoint] running migrations..."
 alembic upgrade head
 
+# Start a virtual X display so Chromium can run headful (anti-detection).
+echo "[entrypoint] starting Xvfb on :99..."
+Xvfb :99 -screen 0 1920x1080x24 -nolisten tcp >/tmp/xvfb.log 2>&1 &
+export DISPLAY=:99
+sleep 1
+
 echo "[entrypoint] starting uvicorn..."
 exec uvicorn app.main:app --host 0.0.0.0 --port 8000 --proxy-headers --forwarded-allow-ips='*'

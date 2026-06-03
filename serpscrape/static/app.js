@@ -36,7 +36,7 @@ function serpApp() {
     selectedIds: [],
     _pollTimer: null,
 
-    settings: { default_notify_email: '', smtp_host: '', smtp_port: 587, smtp_username: '', smtp_password: '', smtp_password_set: false, smtp_from: '', smtp_starttls: true },
+    settings: { default_notify_email: '', smtp_host: '', smtp_port: 587, smtp_username: '', smtp_password: '', smtp_password_set: false, smtp_from: '', smtp_starttls: true, capsolver_api_key: '', capsolver_api_key_set: false },
     settingsSaved: false,
     tokens: [],
     newTokenName: '',
@@ -218,6 +218,7 @@ function serpApp() {
         this.settings = await this.api('GET', '/api/settings');
         this.tokens = await this.api('GET', '/api/tokens');
         this.settings.smtp_password = '';
+        this.settings.capsolver_api_key = '';
       } catch (e) { console.error(e); }
     },
     async saveSettings() {
@@ -229,10 +230,13 @@ function serpApp() {
         smtp_from: this.settings.smtp_from || null,
         smtp_starttls: !!this.settings.smtp_starttls,
       };
+      // Secret fields: only send when the user typed something (blank = keep existing).
       if (this.settings.smtp_password) payload.smtp_password = this.settings.smtp_password;
+      if (this.settings.capsolver_api_key) payload.capsolver_api_key = this.settings.capsolver_api_key;
       try {
         this.settings = await this.api('PUT', '/api/settings', payload);
         this.settings.smtp_password = '';
+        this.settings.capsolver_api_key = '';
         this.settingsSaved = true;
         setTimeout(() => { this.settingsSaved = false; }, 2000);
       } catch (e) { alert('Save failed: ' + e.message); }

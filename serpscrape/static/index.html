@@ -237,14 +237,16 @@
             <input x-model="settings.smtp_host" class="w-full bg-slate-950 border border-slate-700 rounded-md px-3 py-2 text-sm" />
           </div>
           <div>
-            <label class="block text-sm text-slate-300 mb-1.5">SMTP port</label>
-            <select x-model.number="settings.smtp_port" class="w-full bg-slate-950 border border-slate-700 rounded-md px-3 py-2 text-sm focus:border-brand-500 focus:outline-none">
-              <option :value="587">587 — STARTTLS (submission)</option>
-              <option :value="465">465 — SSL/TLS (SMTPS)</option>
-              <option :value="25">25 — plain/relay</option>
-              <option :value="2525">2525 — alt submission</option>
-              <option :value="1025">1025 — local dev (Mailpit/Mailhog)</option>
-            </select>
+            <label class="block text-sm text-slate-300 mb-1.5">SMTP port <span class="text-slate-500">(pick or type)</span></label>
+            <input type="number" min="1" max="65535" step="1" list="smtp-ports" x-model.number="settings.smtp_port"
+                   class="w-full bg-slate-950 border border-slate-700 rounded-md px-3 py-2 text-sm focus:border-brand-500 focus:outline-none" />
+            <datalist id="smtp-ports">
+              <option value="587">587 — STARTTLS (submission)</option>
+              <option value="465">465 — SSL/TLS (SMTPS)</option>
+              <option value="25">25 — plain/relay</option>
+              <option value="2525">2525 — alt submission</option>
+              <option value="1025">1025 — local dev (Mailpit/Mailhog)</option>
+            </datalist>
           </div>
           <div>
             <label class="block text-sm text-slate-300 mb-1.5">SMTP username</label>
@@ -267,6 +269,17 @@
               Use STARTTLS
             </label>
           </div>
+
+          <div class="md:col-span-2 border-t border-slate-800 pt-4 mt-1">
+            <label class="block text-sm text-slate-300 mb-1.5">
+              Capsolver API key
+              <span x-show="settings.capsolver_api_key_set" class="ml-1 text-xs text-emerald-400">(set)</span>
+              <span class="text-slate-500">— optional, used to auto-solve captchas</span>
+            </label>
+            <input type="password" x-model="settings.capsolver_api_key" autocomplete="new-password" placeholder="leave blank to keep current" class="w-full bg-slate-950 border border-slate-700 rounded-md px-3 py-2 text-sm" />
+            <p class="text-xs text-slate-500 mt-1">Get a key at capsolver.com. Stored encrypted. When set, reCAPTCHA / hCaptcha / Turnstile challenges are solved automatically during scraping.</p>
+          </div>
+
           <div class="md:col-span-2 flex items-center gap-3 justify-end pt-1">
             <span class="text-xs text-emerald-400" x-show="settingsSaved">Saved</span>
             <button type="submit" class="bg-brand-600 hover:bg-brand-500 text-white text-sm font-medium px-4 py-2 rounded-md">Save settings</button>

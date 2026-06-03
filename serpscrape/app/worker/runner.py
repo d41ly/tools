@@ -9,11 +9,21 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.crypto import decrypt
 from app.db import SessionLocal, session_scope
-from app.models import Task, TaskResult
+from app.models import Setting, Task, TaskResult
 from app.scrapers import SCRAPERS, CaptchaError
 from app.scrapers.base import ScrapeContext, human_sleep
 
 log = logging.getLogger("worker.runner")
+
+
+async def _load_setting(key: str) -> str | None:
+    async with SessionLocal() as s:
+        row = (
+            await s.execute(select(Setting.value, Setting.encrypted).where(Setting.key == key))
+        ).first()
+    if not row or row[0] is None:
+        return None
+    return decrypt(row[0]) if row[1] else row[0]
 
 
 class TaskInterrupted(Exception):
@@ -83,7 +93,13 @@ async def run_task(task_id: int) -> None:
             await _fail(task_id, f"proxy decryption failed: {exc}")
             return
 
-    ctx = ScrapeContext(country=country, proxy=proxy, per_page_delay_ms=per_page)
+    capsolver_key = await _load_setting("capsolver_api_key")
+    ctx = ScrapeContext(
+        country=country,
+        proxy=proxy,
+        per_page_delay_ms=per_page,
+        capsolver_api_key=capsolver_key,
+    )
     combos = [(kw, eng) for kw in keywords for eng in engines]
     total = len(combos)
     log.info("task %s starting: %d combos", task_id, total)

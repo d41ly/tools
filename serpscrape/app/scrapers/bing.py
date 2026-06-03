@@ -10,18 +10,36 @@ from app.scrapers.base import (
     ScrapedResult,
     Scraper,
     dedupe,
+    guard_block,
+    human_dwell,
     human_sleep,
 )
 from app.scrapers.geo import info as geo_info
 
 _EXTRACT_JS = r"""
 () => {
+  // Bing wraps result links in /ck/a redirects; decode the base64url 'u' param
+  // back to the real destination URL.
+  const decode = (href) => {
+    try {
+      const u = new URL(href, location.href);
+      if (u.pathname.includes('/ck/a')) {
+        let raw = u.searchParams.get('u') || '';
+        if (raw.startsWith('a1')) raw = raw.slice(2);
+        raw = raw.replace(/-/g, '+').replace(/_/g, '/');
+        while (raw.length % 4) raw += '=';
+        const dec = atob(raw);
+        if (/^https?:\/\//.test(dec)) return dec;
+      }
+    } catch (e) {}
+    return href;
+  };
   const out = [];
   const seen = new Set();
   for (const li of document.querySelectorAll('li.b_algo')) {
     const a = li.querySelector('h2 a[href]');
     if (!a) continue;
-    const url = a.href;
+    const url = decode(a.href);
     if (!url || !/^https?:\/\//.test(url)) continue;
     if (seen.has(url)) continue;
     seen.add(url);
@@ -72,20 +90,12 @@ class BingScraper(Scraper):
                 f"&mkt={mkt}&setlang={g['lang']}&first={first}"
             )
             await page.goto(url, wait_until="domcontentloaded", timeout=45000)
-            try:
-                await self._check_captcha(page)
-            except CaptchaError:
-                if results:
-                    break
-                raise
+            if await guard_block(page, ctx, self._check_captcha, bool(results)) == "break":
+                break
+            await human_dwell(page)
             try:
                 await page.wait_for_selector("li.b_algo", timeout=12000)
             except Exception:
-                try:
-                    await self._check_captcha(page)
-                except CaptchaError:
-                    if not results:
-                        raise
                 break
 
             for r in await page.evaluate(_EXTRACT_JS):
