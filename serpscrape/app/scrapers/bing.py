@@ -95,6 +95,7 @@ class BingScraper(Scraper):
             await page.goto(url, wait_until="domcontentloaded", timeout=45000)
             if await guard_block(page, ctx, self._check_captcha, bool(results)) == "break":
                 break
+            await self._dismiss_consent(page)
             await human_dwell(page)
             try:
                 await page.wait_for_selector("li.b_algo", timeout=12000)
@@ -122,6 +123,25 @@ class BingScraper(Scraper):
             await human_sleep(ctx.per_page_delay_ms)
 
         return results[: self.target_results]
+
+    async def _dismiss_consent(self, page: Page) -> None:
+        # EU/GDPR cookie-consent banner can sit over (or instead of) results.
+        for sel in [
+            "#bnp_btn_accept",
+            "button#bnp_btn_accept",
+            'button:has-text("Accept all")',
+            'button:has-text("Accept")',
+            'button:has-text("I agree")',
+            'a[aria-label="Accept"]',
+        ]:
+            try:
+                btn = await page.query_selector(sel)
+                if btn:
+                    await btn.click(timeout=2000)
+                    await page.wait_for_load_state("domcontentloaded")
+                    return
+            except Exception:
+                continue
 
     async def _check_captcha(self, page: Page) -> None:
         url = page.url.lower()

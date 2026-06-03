@@ -33,6 +33,11 @@ services:
       UI_HOSTNAME: ${UI_HOSTNAME}
       PUBLIC_BASE_URL: ${PUBLIC_BASE_URL}
       SCRAPER_HEADFUL: ${SCRAPER_HEADFUL:-1}
+      SCRAPER_DEBUG: ${SCRAPER_DEBUG:-}
+    # Persist the UI bootstrap token and scrape diagnostics (HTML + screenshots,
+    # under ./data/diagnostics/task_<id>/) on the host so they're inspectable.
+    volumes:
+      - ./data:/srv/data
     ports:
       - "8000:8000"
     # No depends_on by design: the entrypoint waits for DATABASE_URL to become

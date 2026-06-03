@@ -9,6 +9,7 @@ from fastapi import FastAPI
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
+from app.api import diagnostics as diagnostics_api
 from app.api import export as export_api
 from app.api import misc as misc_api
 from app.api import results as results_api
@@ -63,6 +64,7 @@ app = FastAPI(
 app.include_router(tasks_api.router)
 app.include_router(results_api.router)
 app.include_router(export_api.router)
+app.include_router(diagnostics_api.router)
 app.include_router(settings_api.router)
 app.include_router(tokens_api.router)
 app.include_router(tokens_api.ui_router)

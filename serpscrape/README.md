@@ -228,6 +228,24 @@ random language), DuckDuckGo returns nothing. To reduce this:
 If an engine is blocked mid-run, results already collected are kept and the task completes with
 a note rather than failing outright.
 
+### Diagnostics
+
+When a scrape returns **zero results** or raises, the worker captures what the engine actually
+served so you can see *why*:
+
+- A concise line in the worker log (`docker logs <app>`): final URL, page title, HTML size, and
+  a visible-text snippet, e.g.
+  `DIAG [bing] kw='insegment reviews' task=42 reason=zero-results | url=… | title=… | text='…'`
+- The full HTML + a screenshot under `./data/diagnostics/task_<id>/` on the host (the app's
+  `/srv/data` is bind-mounted), and via the API:
+  ```bash
+  curl -H "Authorization: Bearer $T" http://localhost:8000/api/tasks/42/diagnostics
+  curl -H "Authorization: Bearer $T" \
+    "http://localhost:8000/api/tasks/42/diagnostics/<filename>.html" -o bing.html
+  ```
+
+Set `SCRAPER_DIAG_DIR` to change the capture location (default `/srv/data/diagnostics`).
+
 ## Security notes
 
 - `APP_SECRET_KEY` is a Fernet key used to encrypt SMTP password and proxy credentials at rest.

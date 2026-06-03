@@ -84,6 +84,7 @@ class ScrapeContext:
     proxy: dict | None
     per_page_delay_ms: int
     capsolver_api_key: str | None = None
+    task_id: int | None = None
 
 
 async def human_sleep(base_ms: int, jitter: float = 0.35) -> None:
@@ -213,7 +214,28 @@ class Scraper:
             async with open_context(pw, ctx) as browser_ctx:
                 page = await browser_ctx.new_page()
                 await apply_stealth(page)
-                return await self._scrape(page, keyword, ctx)
+                from app.scrapers import diagnostics  # local import avoids cycle
+                try:
+                    results = await self._scrape(page, keyword, ctx)
+                except Exception as exc:
+                    # Capture the page state before the context tears down, so blocks
+                    # / captchas / unexpected layouts are inspectable.
+                    await diagnostics.capture(
+                        page, self.engine, keyword, ctx.task_id,
+                        reason=f"exception:{type(exc).__name__}",
+                    )
+                    raise
+                if not results:
+                    await diagnostics.capture(
+                        page, self.engine, keyword, ctx.task_id, reason="zero-results"
+                    )
+                elif os.environ.get("SCRAPER_DEBUG"):
+                    # Opt-in: capture even on success, to inspect wrong-but-non-empty
+                    # results (e.g. off-region/spam pages).
+                    await diagnostics.capture(
+                        page, self.engine, keyword, ctx.task_id, reason="debug"
+                    )
+                return results
 
     async def _scrape(self, page: Page, keyword: str, ctx: ScrapeContext) -> list[ScrapedResult]:
         raise NotImplementedError

@@ -99,6 +99,7 @@ async def run_task(task_id: int) -> None:
         proxy=proxy,
         per_page_delay_ms=per_page,
         capsolver_api_key=capsolver_key,
+        task_id=task_id,
     )
     combos = [(kw, eng) for kw in keywords for eng in engines]
     total = len(combos)
