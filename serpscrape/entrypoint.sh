@@ -2,21 +2,28 @@
 set -euo pipefail
 
 echo "[entrypoint] waiting for database..."
-# Probe with the REAL driver (asyncpg) and the actual DSN — the same path the app
-# uses — instead of a raw TCP socket. This validates routing, auth, and pg_hba, and
-# prints the real error each attempt so failures are diagnosable rather than a bare
-# "unreachable". Override the window with DB_WAIT_SECONDS (default 60).
+# Probe with the REAL driver (asyncpg), parsing DATABASE_URL exactly like the app
+# (SQLAlchemy make_url → explicit host/port/user/db) so the probe targets precisely
+# what the app will. Prints the resolved target and the real error each attempt, so
+# failures are diagnosable. Override the window with DB_WAIT_SECONDS (default 60).
 python - <<'PY'
-import asyncio, os, re, sys, time
+import asyncio, os, sys, time
 import asyncpg
+from sqlalchemy.engine import make_url
 
-dsn = re.sub(r"\+asyncpg", "", os.environ["DATABASE_URL"], count=1)  # libpq DSN
+u = make_url(os.environ["DATABASE_URL"])
+host, port = u.host, (u.port or 5432)
+print(f"[entrypoint] target db: host={host} port={port} db={u.database} user={u.username}", flush=True)
+
 wait = int(os.environ.get("DB_WAIT_SECONDS", "60"))
 deadline = time.time() + wait
 last = None
 
 async def probe():
-    conn = await asyncpg.connect(dsn=dsn, timeout=5)
+    conn = await asyncpg.connect(
+        host=host, port=port, user=u.username, password=u.password,
+        database=u.database, timeout=5,
+    )
     try:
         await conn.fetchval("SELECT 1")
     finally:
@@ -31,10 +38,10 @@ while time.time() < deadline:
         sys.exit(0)
     except Exception as e:
         last = e
-        print(f"[entrypoint] db not ready (attempt {attempt}): {type(e).__name__}: {e}", flush=True)
+        print(f"[entrypoint] db not ready (attempt {attempt}) -> {host}:{port}: {type(e).__name__}: {e}", flush=True)
         time.sleep(2)
 
-print(f"[entrypoint] giving up after {wait}s — last error: {type(last).__name__}: {last}", file=sys.stderr, flush=True)
+print(f"[entrypoint] giving up after {wait}s connecting to {host}:{port}: {type(last).__name__}: {last}", file=sys.stderr, flush=True)
 sys.exit(1)
 PY
 

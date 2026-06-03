@@ -1,0 +1,19 @@
+# Overlay for connecting to a PostgreSQL cluster running on the HOST, on Linux.
+#
+# It puts the app on the host's network namespace, so the database is reachable at
+# 127.0.0.1 with NO Docker bridge isolation, NO host.docker.internal, and NO
+# pg_hba subnet whitelisting — exactly the path your `psql` test already uses.
+#
+# Usage:
+#   docker compose -f docker-compose.yml -f docker-compose.hostnet.yml up -d --build
+#
+# Then in .env set DATABASE_URL to the host cluster on loopback (use the cluster's
+# real port — PG18 is often 5433 when a PG16 cluster also exists; check pg_lsclusters):
+#   DATABASE_URL=postgresql+asyncpg://serp:changeme_postgres@127.0.0.1:5432/serp
+#
+# pg_hba.conf normally already allows 127.0.0.1/32 ("host all all 127.0.0.1/32 scram-sha-256"),
+# so no whitelisting changes are needed. With host networking the app binds directly
+# to host port 8000 (the published "ports" mapping is unused and can be ignored).
+services:
+  app:
+    network_mode: host

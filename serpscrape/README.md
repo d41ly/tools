@@ -68,30 +68,50 @@ docker compose --profile bundled-db up --build -d
 # DATABASE_URL=postgresql+asyncpg://serp:changeme_postgres@db:5432/serp
 ```
 
-**B) Host PostgreSQL 18 cluster** — don't pass the profile; the `db` container never starts:
+**B) Host PostgreSQL 18 cluster** — don't pass the profile; the `db` container never starts.
+First, create the role and database on the host cluster (note its port — with multiple
+clusters PG18 is often `5433`; check `pg_lsclusters`):
+
+```sql
+CREATE ROLE serp LOGIN PASSWORD 'changeme_postgres';
+CREATE DATABASE serp OWNER serp;
+```
+
+**B1 — host networking (recommended on Linux).** This is the reliable path: the app shares the
+host's network stack and reaches PostgreSQL at `127.0.0.1`, sidestepping all Docker bridge
+isolation. No `host.docker.internal`, no subnet whitelisting.
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.hostnet.yml up --build -d
+# DATABASE_URL=postgresql+asyncpg://serp:changeme_postgres@127.0.0.1:5432/serp   (use the real port)
+```
+
+`pg_hba.conf` almost always already allows loopback (`host all all 127.0.0.1/32 scram-sha-256`),
+so usually nothing else is needed. Ensure `listen_addresses` includes `localhost` (the default).
+
+> Why this and not `host.docker.internal` / a bridge gateway IP like `172.17.0.1`? On Linux the
+> app container is on the Compose **bridge** network, which is isolated from `docker0`. From
+> there `host.docker.internal` may not resolve and the `docker0` gateway (`172.17.0.1`) is often
+> a black hole — connections just time out (exactly the `TimeoutError` you'd see in the logs),
+> even though `psql` works from a differently-attached shell. Host networking removes the bridge
+> from the equation entirely.
+
+**B2 — bridge networking (Docker Desktop on macOS/Windows, or if you can't use host mode).**
 
 ```bash
 docker compose up --build -d
 # DATABASE_URL=postgresql+asyncpg://serp:changeme_postgres@host.docker.internal:5432/serp
 ```
 
-The app container reaches the host via `host.docker.internal` (mapped to the host gateway in
-`docker-compose.yml`, which also works on Linux). One-time host setup:
+The app reaches the host via `host.docker.internal` (mapped to the host gateway in
+`docker-compose.yml`). In `postgresql.conf` set `listen_addresses = '*'`, and in `pg_hba.conf`
+allow the Docker subnet, then reload (`SELECT pg_reload_conf();`) and open the firewall:
+```
+host  serp  serp  172.16.0.0/12  scram-sha-256
+```
 
-1. **Pick the right port.** With multiple clusters, PG18 is often on `5433`:
-   `pg_lsclusters` (Debian/Ubuntu) shows each cluster's port. Put it in `DATABASE_URL`.
-2. **Create the role and database** on the host cluster:
-   ```sql
-   CREATE ROLE serp LOGIN PASSWORD 'changeme_postgres';
-   CREATE DATABASE serp OWNER serp;
-   ```
-3. **Let the container connect.** In `postgresql.conf` set `listen_addresses = '*'`
-   (or the docker bridge IP), and in `pg_hba.conf` allow the Docker subnet, e.g.:
-   ```
-   host  serp  serp  172.16.0.0/12  scram-sha-256
-   ```
-   Reload: `sudo systemctl reload postgresql@18-main` (or `SELECT pg_reload_conf();`), and
-   ensure the host firewall permits the Docker subnet to the chosen port.
+The entrypoint prints the exact database target it resolved (`target db: host=… port=…`) and the
+real error on each attempt, so a connection problem is easy to diagnose from `docker logs`.
 
 Migrations (`alembic upgrade head`) run automatically on container start against whichever
 database `DATABASE_URL` points to. The entrypoint waits for that host:port to be reachable
