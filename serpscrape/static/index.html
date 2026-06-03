@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>SERP Scraper</title>
+  <title>Serpscrape</title>
   <script src="https://cdn.tailwindcss.com"></script>
   <script>
     tailwind.config = { darkMode: 'class', theme: { extend: {
@@ -21,7 +21,7 @@
     <!-- Sidebar -->
     <aside class="w-60 shrink-0 border-r border-slate-800 bg-slate-900/50 flex flex-col">
       <div class="px-5 pt-5 pb-4 border-b border-slate-800">
-        <div class="text-lg font-semibold tracking-tight">SERP Scraper</div>
+        <div class="text-lg font-semibold tracking-tight">Serpscrape</div>
         <div class="text-xs text-slate-400 mt-0.5" x-text="bootError ? bootError : 'self-hosted'"></div>
       </div>
       <nav class="flex flex-col gap-0.5 p-3 text-sm">
@@ -76,7 +76,7 @@
             <label class="block text-sm text-slate-300 mb-1.5">Country (geo-target)</label>
             <select x-model="form.country" class="w-full bg-slate-950 border border-slate-700 rounded-md px-3 py-2 text-sm focus:border-brand-500 focus:outline-none">
               <template x-for="c in countries" :key="c.code">
-                <option :value="c.code" x-text="c.code + ' — ' + c.locale"></option>
+                <option :value="c.code" :disabled="c.sep" x-text="c.sep ? '──────────' : (c.code + ' — ' + c.locale)"></option>
               </template>
             </select>
           </div>
@@ -162,14 +162,41 @@
       <!-- History -->
       <section x-show="route === 'history'" class="p-6 lg:p-8 max-w-6xl mx-auto" x-cloak>
         <h1 class="text-2xl font-semibold mb-1">History</h1>
-        <p class="text-slate-400 text-sm mb-4">All tasks, newest first. Click a row to view results.</p>
+        <p class="text-slate-400 text-sm mb-4">Click a row to view results. Click the Created or Status headers to sort.</p>
 
-        <div class="flex items-center gap-3 mb-3 h-8">
+        <!-- Filters toolbar -->
+        <div class="flex flex-wrap items-end gap-3 mb-3">
+          <div class="flex-1 min-w-[200px]">
+            <label class="block text-xs text-slate-500 mb-1">Search by name</label>
+            <input x-model="histSearch" @input.debounce.350ms="applyHistoryFilters()" type="search" placeholder="filter tasks…"
+                   class="w-full bg-slate-950 border border-slate-700 rounded-md px-3 py-1.5 text-sm focus:border-brand-500 focus:outline-none" />
+          </div>
+          <div>
+            <label class="block text-xs text-slate-500 mb-1">Period</label>
+            <select x-model="histPeriod" @change="applyHistoryFilters()"
+                    class="bg-slate-950 border border-slate-700 rounded-md px-2 py-1.5 text-sm focus:border-brand-500 focus:outline-none">
+              <option value="all">All time</option>
+              <option value="today">Today</option>
+              <option value="yesterday">Yesterday</option>
+              <option value="7d">Last 7 days</option>
+              <option value="month">Last month</option>
+            </select>
+          </div>
+          <div>
+            <label class="block text-xs text-slate-500 mb-1">Per page</label>
+            <select x-model.number="histPerPage" @change="applyHistoryFilters()"
+                    class="bg-slate-950 border border-slate-700 rounded-md px-2 py-1.5 text-sm focus:border-brand-500 focus:outline-none">
+              <option :value="10">10</option>
+              <option :value="20">20</option>
+              <option :value="50">50</option>
+              <option :value="100">100</option>
+              <option :value="200">200</option>
+            </select>
+          </div>
           <button x-show="selectedIds.length > 0" @click="deleteSelected()"
                   class="text-xs px-3 py-1.5 rounded bg-rose-900/50 hover:bg-rose-800/70 text-rose-100 border border-rose-800">
             Delete selected (<span x-text="selectedIds.length"></span>)
           </button>
-          <span x-show="selectedIds.length > 0" class="text-xs text-slate-500" x-text="'Deletes tasks and their results permanently.'"></span>
         </div>
 
         <div class="border border-slate-800 rounded-lg overflow-hidden">
@@ -180,9 +207,13 @@
                   <input type="checkbox" class="accent-brand-500 align-middle" @change="toggleSelectAll($event)"
                          :checked="allTasks.length > 0 && selectedIds.length === allTasks.length" />
                 </th>
-                <th class="px-3 py-2 text-left">Created</th>
+                <th class="px-3 py-2 text-left cursor-pointer select-none hover:text-slate-200" @click="setSort('created_at')">
+                  Created<span x-text="sortArrow('created_at')"></span>
+                </th>
                 <th class="px-3 py-2 text-left">Name</th>
-                <th class="px-3 py-2 text-left">Status</th>
+                <th class="px-3 py-2 text-left cursor-pointer select-none hover:text-slate-200" @click="setSort('status')">
+                  Status<span x-text="sortArrow('status')"></span>
+                </th>
                 <th class="px-3 py-2 text-left">Progress</th>
                 <th class="px-3 py-2 text-right">Actions</th>
               </tr>
@@ -216,9 +247,21 @@
                   </td>
                 </tr>
               </template>
-              <tr x-show="allTasks.length === 0"><td colspan="6" class="px-3 py-6 text-center text-slate-500 text-sm">No tasks yet.</td></tr>
+              <tr x-show="allTasks.length === 0"><td colspan="6" class="px-3 py-6 text-center text-slate-500 text-sm">No tasks match.</td></tr>
             </tbody>
           </table>
+        </div>
+
+        <!-- Pagination footer -->
+        <div class="flex items-center justify-between mt-3 text-sm text-slate-400">
+          <div x-text="historyTotal === 0 ? '0 tasks' : ((histPage - 1) * histPerPage + 1) + '–' + Math.min(histPage * histPerPage, historyTotal) + ' of ' + historyTotal"></div>
+          <div class="flex items-center gap-1">
+            <button @click="gotoPage(1)" :disabled="histPage <= 1" class="px-2 py-1 rounded bg-slate-800 hover:bg-slate-700 disabled:opacity-40 disabled:cursor-not-allowed">«</button>
+            <button @click="gotoPage(histPage - 1)" :disabled="histPage <= 1" class="px-2 py-1 rounded bg-slate-800 hover:bg-slate-700 disabled:opacity-40 disabled:cursor-not-allowed">Prev</button>
+            <span class="px-2" x-text="'Page ' + histPage + ' / ' + historyPages"></span>
+            <button @click="gotoPage(histPage + 1)" :disabled="histPage >= historyPages" class="px-2 py-1 rounded bg-slate-800 hover:bg-slate-700 disabled:opacity-40 disabled:cursor-not-allowed">Next</button>
+            <button @click="gotoPage(historyPages)" :disabled="histPage >= historyPages" class="px-2 py-1 rounded bg-slate-800 hover:bg-slate-700 disabled:opacity-40 disabled:cursor-not-allowed">»</button>
+          </div>
         </div>
       </section>
 

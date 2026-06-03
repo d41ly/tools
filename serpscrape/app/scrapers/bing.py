@@ -64,17 +64,38 @@ class BingScraper(Scraper):
         g = geo_info(ctx.country)
         mkt = g["locale"]  # e.g. "en-US" — Bing's authoritative market selector
         mkt_l = mkt.lower()
+        cc = ctx.country.lower()
+        # ensearch=1 forces Bing's English experience from a non-English-geolocated
+        # IP; only meaningful when the target language is English.
+        ensearch = "&ensearch=1" if g["lang"] == "en" else ""
 
         # Lock Bing to the requested market. Without this, Bing geolocates by the
-        # server's egress IP and returns mixed-language/irrelevant results.
+        # server's egress IP and returns mixed-language/irrelevant decoy results.
         try:
             await page.context.add_cookies(
                 [
-                    {"name": "_EDGE_S", "value": f"mkt={mkt_l}&ui={mkt_l}", "domain": ".bing.com", "path": "/"},
+                    {"name": "_EDGE_S", "value": f"ui={mkt_l}&mkt={mkt_l}", "domain": ".bing.com", "path": "/"},
                     {"name": "_EDGE_CD", "value": f"m={mkt_l}&u={mkt_l}", "domain": ".bing.com", "path": "/"},
-                    {"name": "SRCHHPGUSR", "value": f"SRCHLANG={g['lang']}", "domain": ".bing.com", "path": "/"},
+                    {
+                        "name": "SRCHHPGUSR",
+                        "value": f"SRCHLANG={g['lang']}&BRW=NOTP&BRH=S&CW=1920&CH=1080&DPR=1&UTC=0&MARKET={mkt_l}",
+                        "domain": ".bing.com",
+                        "path": "/",
+                    },
                 ]
             )
+        except Exception:
+            pass
+
+        # Plant the market by hitting the homepage with setmkt first (this is how a
+        # real user switching region establishes the cookie), then search.
+        try:
+            await page.goto(
+                f"https://www.bing.com/?mkt={mkt}&setmkt={mkt}&setlang={g['lang']}{ensearch}",
+                wait_until="domcontentloaded",
+                timeout=45000,
+            )
+            await human_dwell(page)
         except Exception:
             pass
 
@@ -87,7 +108,7 @@ class BingScraper(Scraper):
             # and ignore &first=, which caps results at ~10. Plain &first= paginates.
             url = (
                 f"https://www.bing.com/search?q={quote_plus(keyword)}"
-                f"&mkt={mkt}&setlang={g['lang']}&first={first}"
+                f"&mkt={mkt}&setmkt={mkt}&setlang={g['lang']}&cc={cc}{ensearch}&first={first}"
             )
             await page.goto(url, wait_until="domcontentloaded", timeout=45000)
             if await guard_block(page, ctx, self._check_captcha, bool(results)) == "break":

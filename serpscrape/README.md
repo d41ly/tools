@@ -1,4 +1,4 @@
-# SERP Scraper
+# Serpscrape
 
 Self-hosted tool that queries **Google**, **Bing**, and **DuckDuckGo** for the first ~100 organic
 results of a keyword (using a headless Chromium browser via Playwright), stores the results in
@@ -38,9 +38,13 @@ token-authenticated REST API.
    `DATABASE_URL` to match. Set `UI_HOSTNAME` to the hostname your webauth proxy uses (or
    leave `localhost` for local testing) and `PUBLIC_BASE_URL` to the URL the UI is served at.
 
-3. Bring up the stack:
+3. Bring up the stack. Choose your database (see **Database options** below):
 
    ```bash
+   # Bundled PostgreSQL 16 container:
+   docker compose --profile bundled-db up --build -d
+
+   # OR use a PostgreSQL 18 cluster already running on the host:
    docker compose up --build -d
    ```
 
@@ -48,8 +52,50 @@ token-authenticated REST API.
    own session token via `GET /api/ui-token`, which is restricted to the configured
    `UI_HOSTNAME`.
 
-5. In **Settings**, configure SMTP (host/port/from + optional user/pass) and a default
-   notification email. Create one or more **API tokens** for external automation.
+5. In **Settings**, configure SMTP (host/port/from + optional user/pass), a default
+   notification email, and optionally a **Capsolver API key**. Create one or more
+   **API tokens** for external automation.
+
+## Database options
+
+Serpscrape works with any PostgreSQL 14+ (tested against 16 and 18). The bundled container is
+optional, so you can point it at an existing cluster on the host instead.
+
+**A) Bundled PostgreSQL 16** — zero setup, data in the `pgdata` volume:
+
+```bash
+docker compose --profile bundled-db up --build -d
+# DATABASE_URL=postgresql+asyncpg://serp:changeme_postgres@db:5432/serp
+```
+
+**B) Host PostgreSQL 18 cluster** — don't pass the profile; the `db` container never starts:
+
+```bash
+docker compose up --build -d
+# DATABASE_URL=postgresql+asyncpg://serp:changeme_postgres@host.docker.internal:5432/serp
+```
+
+The app container reaches the host via `host.docker.internal` (mapped to the host gateway in
+`docker-compose.yml`, which also works on Linux). One-time host setup:
+
+1. **Pick the right port.** With multiple clusters, PG18 is often on `5433`:
+   `pg_lsclusters` (Debian/Ubuntu) shows each cluster's port. Put it in `DATABASE_URL`.
+2. **Create the role and database** on the host cluster:
+   ```sql
+   CREATE ROLE serp LOGIN PASSWORD 'changeme_postgres';
+   CREATE DATABASE serp OWNER serp;
+   ```
+3. **Let the container connect.** In `postgresql.conf` set `listen_addresses = '*'`
+   (or the docker bridge IP), and in `pg_hba.conf` allow the Docker subnet, e.g.:
+   ```
+   host  serp  serp  172.16.0.0/12  scram-sha-256
+   ```
+   Reload: `sudo systemctl reload postgresql@18-main` (or `SELECT pg_reload_conf();`), and
+   ensure the host firewall permits the Docker subnet to the chosen port.
+
+Migrations (`alembic upgrade head`) run automatically on container start against whichever
+database `DATABASE_URL` points to. The entrypoint waits for that host:port to be reachable
+before starting, so there's no `depends_on` coupling to the bundled container.
 
 ## REST API
 
@@ -79,6 +125,9 @@ curl -X POST http://localhost:8000/api/tasks \
 
 ```bash
 curl -H "Authorization: Bearer $T" http://localhost:8000/api/tasks
+# search / sort / filter / paginate (used by the History screen)
+curl -H "Authorization: Bearer $T" \
+  "http://localhost:8000/api/tasks?q=shoes&sort=status&order=asc&created_after=2026-06-01T00:00:00Z&limit=20&offset=0"
 curl -H "Authorization: Bearer $T" http://localhost:8000/api/tasks/123
 curl -X PATCH -H "Authorization: Bearer $T" -H 'Content-Type: application/json' \
   -d '{"action":"pause"}' http://localhost:8000/api/tasks/123
@@ -122,8 +171,8 @@ Interactive API docs at `/api/docs`.
 - **FastAPI** single process. The background worker is an `asyncio` task started in the
   app's lifespan handler — one task at a time, claimed via `SELECT ... FOR UPDATE SKIP LOCKED`
   so multiple replicas would coexist safely (default deployment is a single replica).
-- **PostgreSQL 16** with four tables: `settings`, `api_tokens`, `tasks`, `task_results`.
-  Migrations live in `alembic/versions/`.
+- **PostgreSQL** (14+; bundled 16 container or a host cluster such as 18) with four tables:
+  `settings`, `api_tokens`, `tasks`, `task_results`. Migrations live in `alembic/versions/`.
 - **Playwright** (Chromium) launched per scrape with stealth, randomized viewport, and the
   user-supplied proxy and country locale.
 - **Static SPA** (vanilla HTML + Tailwind via CDN + Alpine.js) served by the same FastAPI

@@ -5,6 +5,7 @@ from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.responses import Response
+from sqlalchemy import asc as sql_asc
 from sqlalchemy import delete as sql_delete
 from sqlalchemy import desc, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -86,18 +87,37 @@ async def create_task(payload: TaskCreate, session: AsyncSession = Depends(get_s
 async def list_tasks(
     session: AsyncSession = Depends(get_session),
     status_filter: str | None = Query(default=None, alias="status"),
+    q: str | None = Query(default=None, description="search task name (case-insensitive)"),
+    sort: str = Query(default="created_at", pattern="^(created_at|status)$"),
+    order: str = Query(default="desc", pattern="^(asc|desc)$"),
+    created_after: datetime | None = Query(default=None),
+    created_before: datetime | None = Query(default=None),
     limit: int = Query(default=50, ge=1, le=500),
     offset: int = Query(default=0, ge=0),
 ) -> dict:
-    q = select(Task)
-    count_q = select(func.count()).select_from(Task)
+    filters = []
     if status_filter:
-        q = q.where(Task.status == status_filter)
-        count_q = count_q.where(Task.status == status_filter)
+        filters.append(Task.status == status_filter)
+    if q:
+        filters.append(Task.name.ilike(f"%{q.strip()}%"))
+    if created_after:
+        filters.append(Task.created_at >= created_after)
+    if created_before:
+        filters.append(Task.created_at < created_before)
+
+    base = select(Task)
+    count_q = select(func.count()).select_from(Task)
+    for f in filters:
+        base = base.where(f)
+        count_q = count_q.where(f)
+
+    sort_col = Task.status if sort == "status" else Task.created_at
+    direction = sql_asc if order == "asc" else desc
+    # stable secondary order by id so equal sort keys paginate deterministically
+    base = base.order_by(direction(sort_col), desc(Task.id))
+
     total = (await session.execute(count_q)).scalar_one()
-    rows = (
-        await session.execute(q.order_by(desc(Task.created_at)).limit(limit).offset(offset))
-    ).scalars().all()
+    rows = (await session.execute(base.limit(limit).offset(offset))).scalars().all()
     return {
         "total": int(total),
         "items": [_task_to_out(t).model_dump(mode="json") for t in rows],

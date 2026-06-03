@@ -76,7 +76,7 @@ async def send_completion(task_id: int) -> None:
     ) if counts else "<p><i>No results stored.</i></p>"
 
     msg = EmailMessage()
-    msg["Subject"] = f"[SERP] {status_label}: {task.name}"
+    msg["Subject"] = f"[Serpscrape] {status_label}: {task.name}"
     msg["From"] = smtp_from
     msg["To"] = to_addr
     msg.set_content(
@@ -96,7 +96,7 @@ async def send_completion(task_id: int) -> None:
         <p>Engines: {html.escape(', '.join(task.engines))} &middot; Country: {html.escape(task.country)}</p>
         {counts_html}
         {f'<p style="color:#c00">Error: {html.escape(task.error_message or "")}</p>' if task.error_message else ''}
-        <p><a href="{link}">Open in SERP scraper</a></p>
+        <p><a href="{link}">Open in Serpscrape</a></p>
         </body></html>""",
         subtype="html",
     )

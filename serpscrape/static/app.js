@@ -6,7 +6,7 @@ function _defaultForm() {
     country: 'US',
     per_page_delay_ms: 1500,
     per_keyword_delay_ms: 5000,
-    max_results: 100,
+    max_results: 50,
     notify_email: '',
     useProxy: false,
     proxy: { server: '', username: '', password: '' },
@@ -35,6 +35,15 @@ function serpApp() {
     allTasks: [],
     selectedIds: [],
     _pollTimer: null,
+
+    // History view: paging / search / sort / date filter
+    historyTotal: 0,
+    histPage: 1,
+    histPerPage: 10,
+    histSearch: '',
+    histSort: 'created_at',
+    histOrder: 'desc',
+    histPeriod: 'all',
 
     settings: { default_notify_email: '', smtp_host: '', smtp_port: 587, smtp_username: '', smtp_password: '', smtp_password_set: false, smtp_from: '', smtp_starttls: true, capsolver_api_key: '', capsolver_api_key_set: false },
     settingsSaved: false,
@@ -65,15 +74,23 @@ function serpApp() {
         const [countries] = await Promise.all([
           this.api('GET', '/api/countries'),
         ]);
-        this.countries = countries;
+        // Pin US to the top, separated from the rest by a disabled divider.
+        const us = countries.find(c => c.code === 'US');
+        const rest = countries.filter(c => c.code !== 'US');
+        this.countries = us ? [us, { code: '__sep__', locale: '', sep: true }, ...rest] : countries;
       } catch (e) { console.error(e); }
-      await this.refreshAll();
+      await this.refreshActive();
+      this._loadForRoute();
       this._pollTimer = setInterval(() => this.refreshActive(), 3000);
     },
 
     _readRoute() {
       const h = (window.location.hash || '').replace(/^#\/?/, '').split('?')[0];
       this.route = ['new', 'history', 'settings'].includes(h) ? h : 'new';
+      this._loadForRoute();
+    },
+    _loadForRoute() {
+      if (!this.token) return;  // boot() loads once the token is ready
       if (this.route === 'history') this.loadHistory();
       if (this.route === 'settings') this.loadSettings();
     },
@@ -98,19 +115,82 @@ function serpApp() {
 
     async refreshActive() {
       try {
-        // Active = queued + running + paused. Fetch latest 50 of each that aren't terminal.
+        // Active = queued + running + paused (for the New Task queue widget).
         const data = await this.api('GET', '/api/tasks?limit=100&offset=0');
         this.activeTasks = data.items.filter(t => ['queued', 'running', 'paused'].includes(t.status));
-        // Keep history in sync too if we already loaded it
-        if (this.route === 'history') this.allTasks = data.items;
+        // Keep the History view live without disturbing its paging/filters.
+        if (this.route === 'history') await this.loadHistory();
       } catch (e) { console.error(e); }
+    },
+
+    _periodRange(period) {
+      // Returns {after, before} as ISO strings (or null) for the selected period.
+      const startOfDay = (d) => { const x = new Date(d); x.setHours(0, 0, 0, 0); return x; };
+      const now = new Date();
+      const today = startOfDay(now);
+      if (period === 'today') return { after: today.toISOString(), before: null };
+      if (period === 'yesterday') {
+        const y = new Date(today); y.setDate(y.getDate() - 1);
+        return { after: y.toISOString(), before: today.toISOString() };
+      }
+      if (period === '7d') {
+        const a = new Date(now); a.setDate(a.getDate() - 7);
+        return { after: a.toISOString(), before: null };
+      }
+      if (period === 'month') {
+        const a = new Date(now); a.setDate(a.getDate() - 30);
+        return { after: a.toISOString(), before: null };
+      }
+      return { after: null, before: null };
     },
 
     async loadHistory() {
       try {
-        const data = await this.api('GET', '/api/tasks?limit=200&offset=0');
+        const params = new URLSearchParams();
+        params.set('limit', this.histPerPage);
+        params.set('offset', (this.histPage - 1) * this.histPerPage);
+        params.set('sort', this.histSort);
+        params.set('order', this.histOrder);
+        if (this.histSearch.trim()) params.set('q', this.histSearch.trim());
+        const { after, before } = this._periodRange(this.histPeriod);
+        if (after) params.set('created_after', after);
+        if (before) params.set('created_before', before);
+        const data = await this.api('GET', '/api/tasks?' + params.toString());
         this.allTasks = data.items;
+        this.historyTotal = data.total;
+        // If the current page is now beyond the result set (e.g. after deletes), step back.
+        const pages = Math.max(1, Math.ceil(this.historyTotal / this.histPerPage));
+        if (this.histPage > pages) { this.histPage = pages; }
       } catch (e) { console.error(e); }
+    },
+
+    get historyPages() {
+      return Math.max(1, Math.ceil(this.historyTotal / this.histPerPage));
+    },
+    applyHistoryFilters() {
+      this.histPage = 1;
+      this.selectedIds = [];
+      this.loadHistory();
+    },
+    setSort(field) {
+      if (this.histSort === field) {
+        this.histOrder = this.histOrder === 'asc' ? 'desc' : 'asc';
+      } else {
+        this.histSort = field;
+        this.histOrder = 'desc';
+      }
+      this.histPage = 1;
+      this.loadHistory();
+    },
+    sortArrow(field) {
+      if (this.histSort !== field) return '';
+      return this.histOrder === 'asc' ? ' ▲' : ' ▼';
+    },
+    gotoPage(p) {
+      const pages = this.historyPages;
+      this.histPage = Math.min(pages, Math.max(1, p));
+      this.selectedIds = [];
+      this.loadHistory();
     },
 
     async submitTask() {

@@ -31,7 +31,7 @@ _STATIC_DIR = Path(__file__).resolve().parent.parent / "static"
 async def lifespan(app: FastAPI):
     # Validate critical config eagerly
     s = get_settings()
-    log.info("starting SERP scraper (ui_hostname=%s)", s.ui_hostname)
+    log.info("starting Serpscrape (ui_hostname=%s)", s.ui_hostname)
     # Make sure encryption key is usable
     from app.crypto import _fernet  # type: ignore
     _fernet()
@@ -52,7 +52,7 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(
-    title="SERP Scraper",
+    title="Serpscrape",
     version="1.0.0",
     docs_url="/api/docs",
     redoc_url=None,
