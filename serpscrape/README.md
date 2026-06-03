@@ -263,6 +263,23 @@ Set `SCRAPER_DIAG_DIR` to change the capture location (default `/srv/data/diagno
   — protect it with your webauth proxy.
 - Database credentials are read from `DATABASE_URL` and never stored in the app DB.
 
+## Running behind a reverse proxy with HTTP Basic Auth
+
+The web UI is designed to coexist with an `auth_basic` (or similar) proxy:
+
+- The SPA authenticates to the API with an **`X-API-Token`** header — *not* `Authorization`.
+  This matters: a browser drops its cached Basic-Auth credentials on any request that carries
+  an explicit `Authorization` header, so sending `Authorization: Bearer …` would make the proxy
+  return 401 and **re-prompt for Basic Auth endlessly**. Using a custom header avoids the clash;
+  the proxy's Basic credentials flow through on every request. (External API clients can still
+  use the standard `Authorization: Bearer <token>`.)
+- Set **`UI_HOSTNAME`** to the public hostname the proxy serves (e.g. `scrape.example.com`), since
+  the proxy forwards `Host: <that hostname>` and `GET /api/ui-token` is gated to it. If it doesn't
+  match, the SPA can't bootstrap its token and shows "auth bootstrap failed".
+
+A minimal nginx location is just `proxy_pass http://localhost:4240;` with the usual
+`proxy_set_header Host $host;` — no API-specific carve-outs are needed.
+
 ## Local development (without Docker)
 
 Requires Python 3.12+ and a running PostgreSQL instance.

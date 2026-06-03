@@ -126,7 +126,9 @@ function serpApp() {
     },
 
     async api(method, path, body) {
-      const opts = { method, headers: { 'Authorization': 'Bearer ' + this.token } };
+      // Use X-API-Token (not Authorization) so we never override the browser's
+      // cached HTTP Basic Auth credentials when running behind an auth_basic proxy.
+      const opts = { method, headers: { 'X-API-Token': this.token } };
       if (body !== undefined) {
         opts.headers['Content-Type'] = 'application/json';
         opts.body = JSON.stringify(body);
@@ -411,11 +413,11 @@ function serpApp() {
     },
     async exportResults(format) {
       if (!this.resultsTask) return;
-      // Fetch with auth header, then download the returned blob. A plain <a download>
-      // can't send the bearer token, so we go through fetch + object URL.
+      // Fetch with the token header, then download the returned blob. A plain
+      // <a download> can't send the token, so we go through fetch + object URL.
       try {
         const r = await fetch('/api/tasks/' + this.resultsTask.id + '/export?format=' + format, {
-          headers: { 'Authorization': 'Bearer ' + this.token },
+          headers: { 'X-API-Token': this.token },
         });
         if (!r.ok) throw new Error('HTTP ' + r.status);
         const blob = await r.blob();
@@ -436,7 +438,7 @@ function serpApp() {
       if (!this.resultsTask) return;
       try {
         const r = await fetch('/api/tasks/' + this.resultsTask.id + '/export?format=tsv', {
-          headers: { 'Authorization': 'Bearer ' + this.token },
+          headers: { 'X-API-Token': this.token },
         });
         if (!r.ok) throw new Error('HTTP ' + r.status);
         const tsv = await r.text();

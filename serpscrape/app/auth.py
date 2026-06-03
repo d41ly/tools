@@ -13,13 +13,21 @@ from app.models import ApiToken
 
 async def require_token(
     authorization: str | None = Header(default=None),
+    x_api_token: str | None = Header(default=None, alias="X-API-Token"),
     session: AsyncSession = Depends(get_session),
 ) -> ApiToken:
-    if not authorization or not authorization.lower().startswith("bearer "):
-        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Missing bearer token")
-    raw = authorization.split(None, 1)[1].strip()
+    # The SPA sends the token via X-API-Token (NOT Authorization) so it doesn't
+    # clobber an upstream HTTP Basic Auth header (nginx auth_basic) — sending
+    # `Authorization: Bearer` would replace the browser's cached Basic credentials
+    # and make the proxy re-prompt for auth endlessly. External API clients may
+    # still use the standard `Authorization: Bearer <token>` header.
+    raw: str | None = None
+    if x_api_token:
+        raw = x_api_token.strip()
+    elif authorization and authorization.lower().startswith("bearer "):
+        raw = authorization.split(None, 1)[1].strip()
     if not raw:
-        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Empty bearer token")
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Missing API token")
     digest = hash_token(raw)
     row = (
         await session.execute(select(ApiToken).where(ApiToken.token_hash == digest))
