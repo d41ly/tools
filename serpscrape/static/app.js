@@ -1,3 +1,17 @@
+function _defaultForm() {
+  return {
+    name: '',
+    keywordsText: '',
+    engines: ['google'],
+    country: 'US',
+    per_page_delay_ms: 1500,
+    per_keyword_delay_ms: 5000,
+    notify_email: '',
+    useProxy: false,
+    proxy: { server: '', username: '', password: '' },
+  };
+}
+
 function serpApp() {
   return {
     nav: [
@@ -12,7 +26,7 @@ function serpApp() {
     countries: [],
     engines: ['google', 'bing', 'duckduckgo'],
 
-    form: this._defaultForm(),
+    form: _defaultForm(),
     submitting: false,
     formError: '',
 
@@ -30,20 +44,6 @@ function serpApp() {
     resultGroups: [],
     selectedGroup: null,
     results: [],
-
-    _defaultForm() {
-      return {
-        name: '',
-        keywordsText: '',
-        engines: ['google'],
-        country: 'US',
-        per_page_delay_ms: 1500,
-        per_keyword_delay_ms: 5000,
-        notify_email: '',
-        useProxy: false,
-        proxy: { server: '', username: '', password: '' },
-      };
-    },
 
     async boot() {
       this._readRoute();
@@ -135,7 +135,7 @@ function serpApp() {
       this.submitting = true;
       try {
         await this.api('POST', '/api/tasks', payload);
-        this.form = this._defaultForm();
+        this.form = _defaultForm();
         await this.refreshAll();
       } catch (e) {
         this.formError = String(e.message || e);
