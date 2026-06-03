@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi.responses import Response
 from sqlalchemy import desc, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -46,8 +47,13 @@ async def create_token(
     return TokenCreated(**out, token=raw)
 
 
-@router.delete("/{token_id}", status_code=204, dependencies=[Depends(require_token)])
-async def revoke_token(token_id: int, session: AsyncSession = Depends(get_session)) -> None:
+@router.delete(
+    "/{token_id}",
+    status_code=204,
+    response_class=Response,
+    dependencies=[Depends(require_token)],
+)
+async def revoke_token(token_id: int, session: AsyncSession = Depends(get_session)) -> Response:
     t = await session.get(ApiToken, token_id)
     if t is None:
         raise HTTPException(404, "Token not found")
@@ -58,6 +64,7 @@ async def revoke_token(token_id: int, session: AsyncSession = Depends(get_sessio
             update(ApiToken).where(ApiToken.id == token_id).values(revoked_at=datetime.now(timezone.utc))
         )
         await session.commit()
+    return Response(status_code=204)
 
 
 # --- UI bootstrap token endpoint -----------------------------------------
